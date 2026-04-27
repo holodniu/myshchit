@@ -184,3 +184,100 @@ export async function calculateProject(projectId: string) {
     warnings: result.warnings,
   };
 }
+import type { CalculationResult } from "@/lib/calculator/calculator";
+
+/**
+ * Считает примерную стоимость оборудования по бренду
+ */
+export async function fetchPriceEstimate(
+  result: CalculationResult,
+  brandSlug: string
+) {
+  "use server";
+
+  const brand = await prisma.brand.findUnique({ where: { slug: brandSlug } });
+  if (!brand) {
+    return {
+      total: 0,
+      breakdown: { breakers: 0, rcds: 0, cables: 0, enclosure: 0 },
+    };
+  }
+
+  // Берём цены по бренду — средняя цена автомата C16
+  const sampleBreaker = await prisma.breaker.findFirst({
+    where: { brandId: brand.id, current: 16 },
+  });
+  const breakerPrice = sampleBreaker?.priceRub || 200;
+
+  const sampleRcd = await prisma.rcd.findFirst({
+    where: { brandId: brand.id, current: 40 },
+  });
+  const rcdPrice = sampleRcd?.priceRub || 1500;
+
+  const sampleCable = await prisma.cable.findFirst({
+    where: { brandId: brand.id, section: 2.5, cores: 3 },
+  });
+  const cablePricePerMeter = sampleCable?.pricePerMeter || 70;
+
+  // Подсчёт
+  let breakers = breakerPrice; // вводной
+  let rcds = 0;
+  let cables = 0;
+
+  for (const line of result.lines) {
+    // Автомат — масштабируем цену от номинала
+    breakers += breakerPrice * (line.breaker.current / 16);
+
+    // УЗО
+    if (line.rcd) {
+      rcds += rcdPrice * (line.rcd.current / 40);
+    }
+
+    // Кабель — средняя длина 15 метров на линию
+    cables += cablePricePerMeter * 15 * (line.cable.section / 2.5);
+  }
+
+  // Корпус (зависит от количества линий)
+  const enclosurePrices: Record<string, number> = {
+    "ЩРН-12": 1500,
+    "ЩРН-24": 2500,
+    "ЩРН-36": 3500,
+    "ЩРН-48": 5000,
+    "ЩРН-72": 7500,
+    "ЩРН-96": 10000,
+  };
+
+  // Определяем корпус
+  const totalModules =
+    result.lines.reduce(
+      (s, l) => s + l.breaker.poles + (l.rcd?.poles || 0),
+      0
+    ) + result.inputBreaker.poles;
+
+  const enclosureName =
+    totalModules <= 12
+      ? "ЩРН-12"
+      : totalModules <= 24
+      ? "ЩРН-24"
+      : totalModules <= 36
+      ? "ЩРН-36"
+      : totalModules <= 48
+      ? "ЩРН-48"
+      : totalModules <= 72
+      ? "ЩРН-72"
+      : "ЩРН-96";
+
+  const enclosure = enclosurePrices[enclosureName];
+
+  const total = Math.round(breakers + rcds + cables + enclosure);
+
+  return {
+    total,
+    breakdown: {
+      breakers: Math.round(breakers),
+      rcds: Math.round(rcds),
+      cables: Math.round(cables),
+      enclosure,
+    },
+  };
+}

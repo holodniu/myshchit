@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calculator, Loader2, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { CalculationResult } from "@/lib/calculator/calculator";
+import PanelVisualization from "@/components/panel/PanelVisualization";
+import PanelCost from "@/components/panel/PanelCost";
 
 export default function CalculationResultPanel({
   projectId,
@@ -133,7 +135,11 @@ export default function CalculationResultPanel({
           ))}
         </div>
       </div>
+      {/* 🎨 Визуализация щита */}
+<PanelVisualization result={result} />
 
+{/* 💰 Стоимость */}
+<PanelCost result={result} />
       <Button
         variant="outline"
         onClick={handleCalculate}
