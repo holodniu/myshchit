@@ -1,0 +1,429 @@
+// 🛡️ Мой Щит — схема базы данных
+// Документация: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════
+// 👤 ПОЛЬЗОВАТЕЛИ И АУТЕНТИФИКАЦИЯ
+// ═══════════════════════════════════════════════════
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  phone         String?
+  image         String?   // URL аватарки
+  
+  // Роль пользователя
+  role          UserRole  @default(USER)
+  
+  // Подписка
+  subscription       SubscriptionTier @default(FREE)
+  subscriptionUntil  DateTime?        // до какого числа действует
+  
+  // Связи
+  projects      Project[]
+  payments      Payment[]
+  
+  // Метаданные
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  
+  @@map("users")
+}
+
+enum UserRole {
+  USER      // обычный пользователь
+  PRO       // электрик-профессионал
+  ADMIN     // администратор
+}
+
+enum SubscriptionTier {
+  FREE      // бесплатно (ограниченный функционал)
+  ONCE      // разовый платёж за проект
+  PRO       // подписка 990 ₽/мес
+}
+
+// ═══════════════════════════════════════════════════
+// 📋 ПРОЕКТЫ (расчёты щитов)
+// ═══════════════════════════════════════════════════
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String        // "Щит для 2-комнатной квартиры"
+  description String?       @db.Text
+  
+  // Тип сети
+  networkType NetworkType   @default(SINGLE_PHASE)
+  
+  // Общие параметры
+  totalPower     Float?     // суммарная мощность, Вт
+  calculatedPower Float?    // расчётная с коэффициентом одновременности
+  inputCurrent   Float?     // вводной ток, А
+  
+  // Владелец
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Содержимое проекта
+  rooms       Room[]
+  panels      Panel[]       // обычно 1, но может быть subпанель
+  
+  // Статус
+  status      ProjectStatus @default(DRAFT)
+  isPaid      Boolean       @default(false)  // оплачен ли PDF
+  
+  // Метаданные
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  
+  @@index([userId])
+  @@map("projects")
+}
+
+enum NetworkType {
+  SINGLE_PHASE   // однофазная 220В
+  THREE_PHASE    // трёхфазная 380В
+}
+
+enum ProjectStatus {
+  DRAFT       // черновик
+  CALCULATED  // расчёт выполнен
+  EXPORTED    // экспортирован в PDF
+  ARCHIVED    // архив
+}
+
+// ═══════════════════════════════════════════════════
+// 🏠 КОМНАТЫ
+// ═══════════════════════════════════════════════════
+
+model Room {
+  id          String      @id @default(cuid())
+  name        String      // "Кухня", "Спальня"
+  area        Float?      // площадь м²
+  
+  // Порядок в списке
+  order       Int         @default(0)
+  
+  // Связь с проектом
+  projectId   String
+  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Потребители в комнате
+  consumers   Consumer[]
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  @@index([projectId])
+  @@map("rooms")
+}
+
+// ═══════════════════════════════════════════════════
+// 🔌 ПОТРЕБИТЕЛИ (лампы, розетки, бытовая техника)
+// ═══════════════════════════════════════════════════
+
+model Consumer {
+  id          String        @id @default(cuid())
+  
+  // Что это
+  type        ConsumerType  // свет, розетка, варочная и т.д.
+  name        String        // "Люстра", "Холодильник"
+  
+  // Электрические параметры
+  power       Float          // мощность, Вт
+  quantity    Int           @default(1)
+  voltage     Int           @default(220) // 220 или 380
+  powerFactor Float         @default(1.0) // cos φ (для моторов ~0.85)
+  
+  // Нужна ли отдельная линия
+  dedicatedLine Boolean     @default(false)
+  
+  // Связь с комнатой
+  roomId      String
+  room        Room          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  
+  // Связь с линией в щите (если рассчитано)
+  lineId      String?
+  line        Line?         @relation(fields: [lineId], references: [id])
+  
+  createdAt   DateTime      @default(now())
+  
+  @@index([roomId])
+  @@map("consumers")
+}
+
+enum ConsumerType {
+  LIGHT            // 💡 свет
+  SOCKET           // 🔌 розетки
+  COOKTOP          // 🍳 варочная панель
+  OVEN             // 🔥 духовка
+  WATER_HEATER     // 💧 бойлер
+  ELECTRIC_BOILER  // 🌡️ электрокотёл
+  AIR_CONDITIONER  // ❄️ кондиционер
+  REFRIGERATOR     // 🧊 холодильник
+  WASHING_MACHINE  // 🚿 стиралка/ПММ
+  EV_CHARGER       // 🚗 зарядка электромобиля
+  WARM_FLOOR       // 🏠 тёплый пол
+  WORKSHOP         // 🛠️ мастерская
+  OUTDOOR          // 🌳 уличные линии
+  OTHER            // прочее
+}
+
+// ═══════════════════════════════════════════════════
+// ⚡ ЩИТ (панель) и ЛИНИИ
+// ═══════════════════════════════════════════════════
+
+model Panel {
+  id          String       @id @default(cuid())
+  name        String       @default("Главный щит")
+  
+  // Проект
+  projectId   String
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  // Вводной автомат
+  inputBreakerId String?
+  
+  // Линии в щите
+  lines       Line[]
+  
+  createdAt   DateTime     @default(now())
+  
+  @@index([projectId])
+  @@map("panels")
+}
+
+model Line {
+  id              String         @id @default(cuid())
+  name            String         // "Розетки кухня", "Свет коридор"
+  order           Int            @default(0)
+  
+  // Электрические параметры
+  calculatedPower Float           // расчётная мощность, Вт
+  calculatedCurrent Float         // расчётный ток, А
+  
+  // Выбранное оборудование (связи со справочником)
+  breakerId       String?
+  breaker         Breaker?       @relation(fields: [breakerId], references: [id])
+  
+  rcdId           String?
+  rcd             Rcd?           @relation(fields: [rcdId], references: [id])
+  
+  cableId         String?
+  cable           Cable?         @relation(fields: [cableId], references: [id])
+  cableLength     Float?          // длина кабеля, м
+  
+  // Тип линии
+  lineType        LineType       @default(MIXED)
+  
+  // Потребители на линии
+  consumers       Consumer[]
+  
+  // Щит
+  panelId         String
+  panel           Panel          @relation(fields: [panelId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime       @default(now())
+  
+  @@index([panelId])
+  @@map("lines")
+}
+
+enum LineType {
+  LIGHTING    // только свет
+  SOCKETS     // только розетки
+  DEDICATED   // отдельная линия (одно устройство)
+  MIXED       // смешанная
+}
+
+// ═══════════════════════════════════════════════════
+// 🏭 СПРАВОЧНИКИ: БРЕНДЫ И ОБОРУДОВАНИЕ
+// ═══════════════════════════════════════════════════
+
+model Brand {
+  id          String      @id @default(cuid())
+  name        String      @unique  // "ABB", "Schneider Electric"
+  slug        String      @unique  // "abb", "schneider"
+  country     String?                // "Швейцария", "Франция"
+  logoUrl     String?
+  website     String?
+  description String?     @db.Text
+  
+  // Цена-класс
+  priceClass  PriceClass  @default(MID)
+  
+  // Связи со справочниками
+  breakers    Breaker[]
+  rcds        Rcd[]
+  cables      Cable[]
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  @@map("brands")
+}
+
+enum PriceClass {
+  BUDGET      // бюджетные (IEK, EKF)
+  MID         // средние (Schneider Easy9, DEKraft)
+  PREMIUM     // премиум (ABB, Legrand, Schneider Acti9)
+}
+
+// Автоматические выключатели
+model Breaker {
+  id            String      @id @default(cuid())
+  
+  // Связь с брендом
+  brandId       String
+  brand         Brand       @relation(fields: [brandId], references: [id])
+  
+  // Характеристики
+  series        String      // "S200", "Easy9", "ВА47-29"
+  model         String      // "S201-C16", "EZ9F34116"
+  sku           String?     @unique  // артикул
+  
+  // Электрические параметры
+  current       Int         // номинальный ток, А (6, 10, 16, 20, 25, 32, 40, 50, 63)
+  characteristic Characteristic // B, C, D
+  poles         Int         @default(1)  // 1, 2, 3, 4
+  breakingCapacity Int      @default(6000)  // откл. способность, кА (4500, 6000, 10000)
+  
+  // Цены
+  priceRub      Float?
+  
+  // Ссылки
+  datasheetUrl  String?
+  shopUrls      Json?        // { "petrovich": "url", "vseinstrumenti": "url" }
+  
+  // Используется на линиях
+  lines         Line[]
+  
+  isActive      Boolean     @default(true)  // снят ли с производства
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([brandId, current])
+  @@map("breakers")
+}
+
+enum Characteristic {
+  B    // освещение, нет пусковых токов
+  C    // универсальная (наш выбор по умолчанию)
+  D    // моторы, двигатели, мощные компрессоры
+}
+
+// УЗО (устройство защитного отключения)
+model Rcd {
+  id            String      @id @default(cuid())
+  
+  brandId       String
+  brand         Brand       @relation(fields: [brandId], references: [id])
+  
+  series        String
+  model         String
+  sku           String?     @unique
+  
+  current       Int         // номинальный ток, А
+  sensitivity   Int         // ток утечки, мА (10, 30, 100, 300)
+  poles         Int         @default(2)  // 2 или 4
+  type          RcdType     @default(AC)
+  
+  priceRub      Float?
+  datasheetUrl  String?
+  shopUrls      Json?
+  
+  lines         Line[]
+  
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  
+  @@index([brandId, current, sensitivity])
+  @@map("rcds")
+}
+
+enum RcdType {
+  AC    // синусоидальный ток
+  A     // + пульсирующий ток (для ПК, стиралок)
+  B     // + постоянный ток (для зарядок ЭМ, солнечных панелей)
+  F     // для частотников
+}
+
+// Кабели
+model Cable {
+  id            String      @id @default(cuid())
+  
+  brandId       String
+  brand         Brand       @relation(fields: [brandId], references: [id])
+  
+  model         String      // "ВВГнг(А)-LS", "NYM"
+  
+  cores         Int         // количество жил (2, 3, 4, 5)
+  section       Float        // сечение мм² (1.5, 2.5, 4, 6, 10, 16)
+  
+  maxCurrent    Int         // макс. ток, А
+  insulation    String?     // "ПВХ", "сшитый полиэтилен"
+  
+  pricePerMeter Float?
+  
+  lines         Line[]
+  
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  
+  @@index([section, cores])
+  @@map("cables")
+}
+
+// ═══════════════════════════════════════════════════
+// 💳 ПЛАТЕЖИ
+// ═══════════════════════════════════════════════════
+
+model Payment {
+  id              String        @id @default(cuid())
+  
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  
+  // Сумма
+  amountRub       Float
+  
+  // Тип
+  type            PaymentType
+  
+  // Статус ЮKassa
+  status          PaymentStatus @default(PENDING)
+  yookassaId      String?       @unique  // id платежа в ЮKassa
+  
+  // Метаданные
+  description     String?
+  projectId       String?        // если оплата за конкретный проект
+  
+  createdAt       DateTime      @default(now())
+  paidAt          DateTime?
+  
+  @@index([userId])
+  @@map("payments")
+}
+
+enum PaymentType {
+  ONCE          // разовая оплата PDF
+  SUBSCRIPTION  // подписка
+}
+
+enum PaymentStatus {
+  PENDING     // ожидает оплаты
+  SUCCEEDED   // оплачен
+  CANCELED    // отменён
+  REFUNDED    // возврат
+}
