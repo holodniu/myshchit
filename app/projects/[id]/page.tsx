@@ -9,7 +9,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Zap, Home, ArrowLeft } from "lucide-react";
+import { Zap, Home, ArrowLeft, Pencil } from "lucide-react";
 import CalculationResultPanel from "./CalculationResult";
 import {
   calculatePanel,
@@ -55,7 +55,7 @@ export default async function ProjectPage({
     0
   );
 
-  // Если расчёт был — пересчитываем для показа из сохранённых
+  // Если уже рассчитан — пересчитываем для показа из актуальных данных
   let initialResult: CalculationResult | null = null;
   if (project.panels.length > 0 && totalConsumers > 0) {
     const consumers: InputConsumer[] = project.rooms.flatMap((room) =>
@@ -92,29 +92,40 @@ export default async function ProjectPage({
             <ArrowLeft className="w-4 h-4" /> К списку проектов
           </Link>
 
-          <div className="mb-8">
-            <h1 className="text-4xl font-bold text-[#D1D4DC] mb-2">
-              {project.name}
-            </h1>
-            <div className="flex gap-2 flex-wrap text-sm">
-              <Badge color="#D1D4DC">
-                {project.networkType === "SINGLE_PHASE" ? "220В" : "380В"}
-              </Badge>
-              <Badge color="#FF9800">
-                <Zap className="w-3 h-3 inline mr-1" />
-                {(totalPower / 1000).toFixed(2)} кВт
-              </Badge>
-              <Badge color="#26A69A">
-                <Home className="w-3 h-3 inline mr-1" />
-                {project.rooms.length} комнат
-              </Badge>
-              <Badge color="#2962FF">
-                🔌 {totalConsumers} потребителей
-              </Badge>
+          {/* 🏷️ Заголовок + бейджи + кнопка "Редактировать" */}
+          <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-4xl font-bold text-[#D1D4DC] mb-2">
+                {project.name}
+              </h1>
+              <div className="flex gap-2 flex-wrap text-sm">
+                <Badge color="#D1D4DC">
+                  {project.networkType === "SINGLE_PHASE" ? "220В" : "380В"}
+                </Badge>
+                <Badge color="#FF9800">
+                  <Zap className="w-3 h-3 inline mr-1" />
+                  {(totalPower / 1000).toFixed(2)} кВт
+                </Badge>
+                <Badge color="#26A69A">
+                  <Home className="w-3 h-3 inline mr-1" />
+                  {project.rooms.length} комнат
+                </Badge>
+                <Badge color="#2962FF">
+                  🔌 {totalConsumers} потребителей
+                </Badge>
+              </div>
             </div>
+
+            <Link
+              href={`/projects/${project.id}/edit`}
+              className="px-4 py-2 bg-[#1E222D] hover:bg-[#2A2E39] text-[#D1D4DC] border border-[#363A45] rounded-md transition flex items-center gap-2"
+            >
+              <Pencil className="w-4 h-4" />
+              Редактировать
+            </Link>
           </div>
 
-          {/* Комнаты (компактно) */}
+          {/* 🏠 Комнаты (компактно) */}
           <div className="mb-8 space-y-3">
             {project.rooms.map((room) => {
               const roomPower = room.consumers.reduce(
@@ -167,7 +178,10 @@ export default async function ProjectPage({
           </div>
 
           {/* 🧮 Блок расчёта */}
-          <CalculationResultPanel projectId={project.id} initialResult={initialResult} />
+          <CalculationResultPanel
+            projectId={project.id}
+            initialResult={initialResult}
+          />
         </div>
       </main>
 
@@ -192,4 +206,3 @@ function Badge({
     </div>
   );
 }
-

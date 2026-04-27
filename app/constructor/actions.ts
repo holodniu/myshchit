@@ -1,11 +1,16 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { NetworkType, ConsumerType } from "@prisma/client";
+import { calculatePanel, type InputConsumer, type CalculationResult } from "@/lib/calculator/calculator";
 
-// Тип данных от формы
+// ═══════════════════════════════════════════════════
+// 📝 ТИПЫ
+// ═══════════════════════════════════════════════════
+
 export type CreateProjectInput = {
   name: string;
   description?: string;
@@ -23,43 +28,36 @@ export type CreateProjectInput = {
   }[];
 };
 
-// 💾 Создание проекта с комнатами и потребителями
-export async function createProject(input: CreateProjectInput) {
-  // ⚠️ Пока без авторизации — берём "тестового пользователя"
-  // На Этапе 7 (аутентификация) заменим на реального юзера
-  let testUser = await prisma.user.findFirst({
-    where: { email: "test@myshchit.ru" },
-  });
+// ═══════════════════════════════════════════════════
+// 💾 СОЗДАНИЕ ПРОЕКТА
+// ═══════════════════════════════════════════════════
 
-  if (!testUser) {
-    testUser = await prisma.user.create({
-      data: {
-        email: "test@myshchit.ru",
-        name: "Тестовый пользователь",
-        role: "USER",
-      },
-    });
+export async function createProject(input: CreateProjectInput) {
+  const session = await auth();
+
+  if (!session?.user) {
+    throw new Error("Необходимо войти в систему");
   }
 
-  // Считаем общую мощность
+  const userId = (session.user as any).id;
+
+  if (!userId) {
+    throw new Error("Сессия повреждена. Выйдите и войдите заново.");
+  }
+
   const totalPower = input.rooms.reduce(
     (sum, room) =>
-      sum +
-      room.consumers.reduce(
-        (s, c) => s + c.power * c.quantity,
-        0
-      ),
+      sum + room.consumers.reduce((s, c) => s + c.power * c.quantity, 0),
     0
   );
 
-  // Создаём проект + комнаты + потребителей одним запросом
   const project = await prisma.project.create({
     data: {
       name: input.name,
       description: input.description,
       networkType: input.networkType,
       totalPower,
-      userId: testUser.id,
+      userId,
       rooms: {
         create: input.rooms.map((room, roomIdx) => ({
           name: room.name,
@@ -79,28 +77,53 @@ export async function createProject(input: CreateProjectInput) {
     },
   });
 
-  // Обновляем кэш страницы /projects
   revalidatePath("/projects");
-
-  // Редирект на страницу проекта
-  redirect(`/projects/${project.id}`);
+  return { success: true as const, projectId: project.id };
 }
 
-// 🗑️ Удаление проекта
+// ═══════════════════════════════════════════════════
+// 🗑️ УДАЛЕНИЕ ПРОЕКТА
+// ═══════════════════════════════════════════════════
+
 export async function deleteProject(projectId: string) {
+  const session = await auth();
+
+  if (!session?.user) {
+    throw new Error("Необходимо войти в систему");
+  }
+
+  const userId = (session.user as any).id;
+
+  // Проверяем, что проект принадлежит пользователю
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { userId: true },
+  });
+
+  if (!project || project.userId !== userId) {
+    throw new Error("Проект не найден или нет доступа");
+  }
+
   await prisma.project.delete({
     where: { id: projectId },
   });
+
   revalidatePath("/projects");
 }
-import { calculatePanel, type InputConsumer } from "@/lib/calculator/calculator";
 
-/**
- * 🧮 Рассчитать проект — подобрать автоматы, УЗО, кабели
- * И сохранить результаты в БД
- */
+// ═══════════════════════════════════════════════════
+// 🧮 РАСЧЁТ ПРОЕКТА
+// ═══════════════════════════════════════════════════
+
 export async function calculateProject(projectId: string) {
-  // Загружаем проект со всеми данными
+  const session = await auth();
+
+  if (!session?.user) {
+    throw new Error("Необходимо войти в систему");
+  }
+
+  const userId = (session.user as any).id;
+
   const project = await prisma.project.findUnique({
     where: { id: projectId },
     include: {
@@ -114,7 +137,10 @@ export async function calculateProject(projectId: string) {
     throw new Error("Проект не найден");
   }
 
-  // Собираем потребителей для калькулятора
+  if (project.userId !== userId) {
+    throw new Error("Нет доступа к проекту");
+  }
+
   const inputConsumers: InputConsumer[] = project.rooms.flatMap((room) =>
     room.consumers.map((c) => ({
       id: c.id,
@@ -134,15 +160,14 @@ export async function calculateProject(projectId: string) {
     throw new Error("В проекте нет потребителей. Добавьте их перед расчётом.");
   }
 
-  // 🧮 Запуск движка
   const result = calculatePanel(inputConsumers, project.networkType);
 
-  // Удаляем старые расчёты (если были)
+  // Удаляем старые расчёты
   await prisma.panel.deleteMany({
     where: { projectId },
   });
 
-  // Создаём новый щит с линиями
+  // Создаём новый щит
   const panel = await prisma.panel.create({
     data: {
       name: "Главный щит",
@@ -154,7 +179,6 @@ export async function calculateProject(projectId: string) {
           lineType: line.lineType,
           calculatedPower: line.calculatedPower,
           calculatedCurrent: line.calculatedCurrent,
-          // Подключение потребителей к линиям
           consumers: {
             connect: line.consumers.map((c) => ({ id: c.id })),
           },
@@ -164,7 +188,6 @@ export async function calculateProject(projectId: string) {
     include: { lines: true },
   });
 
-  // Обновляем общие параметры проекта
   await prisma.project.update({
     where: { id: projectId },
     data: {
@@ -184,17 +207,15 @@ export async function calculateProject(projectId: string) {
     warnings: result.warnings,
   };
 }
-import type { CalculationResult } from "@/lib/calculator/calculator";
 
-/**
- * Считает примерную стоимость оборудования по бренду
- */
+// ═══════════════════════════════════════════════════
+// 💰 СМЕТА ПО БРЕНДУ
+// ═══════════════════════════════════════════════════
+
 export async function fetchPriceEstimate(
   result: CalculationResult,
   brandSlug: string
 ) {
-  "use server";
-
   const brand = await prisma.brand.findUnique({ where: { slug: brandSlug } });
   if (!brand) {
     return {
@@ -203,7 +224,6 @@ export async function fetchPriceEstimate(
     };
   }
 
-  // Берём цены по бренду — средняя цена автомата C16
   const sampleBreaker = await prisma.breaker.findFirst({
     where: { brandId: brand.id, current: 16 },
   });
@@ -219,25 +239,20 @@ export async function fetchPriceEstimate(
   });
   const cablePricePerMeter = sampleCable?.pricePerMeter || 70;
 
-  // Подсчёт
   let breakers = breakerPrice; // вводной
   let rcds = 0;
   let cables = 0;
 
   for (const line of result.lines) {
-    // Автомат — масштабируем цену от номинала
     breakers += breakerPrice * (line.breaker.current / 16);
 
-    // УЗО
     if (line.rcd) {
       rcds += rcdPrice * (line.rcd.current / 40);
     }
 
-    // Кабель — средняя длина 15 метров на линию
     cables += cablePricePerMeter * 15 * (line.cable.section / 2.5);
   }
 
-  // Корпус (зависит от количества линий)
   const enclosurePrices: Record<string, number> = {
     "ЩРН-12": 1500,
     "ЩРН-24": 2500,
@@ -247,7 +262,6 @@ export async function fetchPriceEstimate(
     "ЩРН-96": 10000,
   };
 
-  // Определяем корпус
   const totalModules =
     result.lines.reduce(
       (s, l) => s + l.breaker.poles + (l.rcd?.poles || 0),
@@ -280,4 +294,79 @@ export async function fetchPriceEstimate(
       enclosure,
     },
   };
+}
+/**
+ * ✏️ Обновление проекта — с правами доступа
+ */
+export async function updateProject(
+  projectId: string,
+  input: CreateProjectInput
+) {
+  const session = await auth();
+
+  if (!session?.user) {
+    throw new Error("Необходимо войти в систему");
+  }
+
+  const userId = (session.user as any).id;
+
+  // Проверяем, что проект принадлежит пользователю
+  const existing = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { userId: true },
+  });
+
+  if (!existing || existing.userId !== userId) {
+    throw new Error("Проект не найден или нет доступа");
+  }
+
+  const totalPower = input.rooms.reduce(
+    (sum, room) =>
+      sum + room.consumers.reduce((s, c) => s + c.power * c.quantity, 0),
+    0
+  );
+
+  // Транзакция: удаляем старые комнаты + создаём новые
+  await prisma.$transaction(async (tx) => {
+    // Удаляем старый расчёт (панель и линии), если был
+    await tx.panel.deleteMany({ where: { projectId } });
+
+    // Удаляем старые комнаты (каскадно удалятся потребители)
+    await tx.room.deleteMany({ where: { projectId } });
+
+    // Обновляем сам проект + создаём новые комнаты
+    await tx.project.update({
+      where: { id: projectId },
+      data: {
+        name: input.name,
+        description: input.description,
+        networkType: input.networkType,
+        totalPower,
+        status: "DRAFT", // сбрасываем статус, т.к. данные изменились
+        calculatedPower: null,
+        inputCurrent: null,
+        rooms: {
+          create: input.rooms.map((room, roomIdx) => ({
+            name: room.name,
+            area: room.area,
+            order: roomIdx,
+            consumers: {
+              create: room.consumers.map((consumer) => ({
+                type: consumer.type,
+                name: consumer.name,
+                power: consumer.power,
+                quantity: consumer.quantity,
+                dedicatedLine: consumer.dedicatedLine,
+              })),
+            },
+          })),
+        },
+      },
+    });
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/projects");
+
+  return { success: true as const, projectId };
 }

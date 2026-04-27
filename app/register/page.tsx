@@ -1,24 +1,18 @@
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import Link from "next/link";
-import LoginForm from "./LoginForm";
+import RegisterForm from "./RegisterForm";
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-1 flex items-center justify-center px-6 py-20">
         <div className="w-full max-w-md">
-          <LoginForm />
-          <Link
-            href="/"
-            className="block text-center mt-6 text-[#787B86] hover:text-[#D1D4DC] transition"
-          >
-            ← На главную
-          </Link>
+          <RegisterForm />
         </div>
       </main>
       <Footer />
     </div>
   );
 }
+

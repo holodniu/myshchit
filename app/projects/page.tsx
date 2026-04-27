@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/auth";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Link from "next/link";
@@ -13,14 +14,18 @@ import { Plus, Zap, Home, Calendar } from "lucide-react";
 import DeleteProjectButton from "./DeleteProjectButton";
 
 export default async function ProjectsPage() {
-  const projects = await prisma.project.findMany({
-    orderBy: { createdAt: "desc" },
-    include: {
-      _count: {
-        select: { rooms: true },
-      },
-    },
-  });
+  const session = await auth();
+  const userId = (session?.user as any)?.id;
+
+  const projects = userId
+    ? await prisma.project.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        include: {
+          _count: { select: { rooms: true } },
+        },
+      })
+    : [];
 
   return (
     <div className="min-h-screen flex flex-col">
