@@ -18,26 +18,32 @@ export default function Header() {
         </Link>
 
         {/* Навигация */}
-        <nav className="hidden md:flex items-center gap-6">
-          <Link
-            href="/#features"
-            className="text-[#D1D4DC] hover:text-[#2962FF] transition"
-          >
-            Возможности
-          </Link>
-          <Link
-            href="/#pricing"
-            className="text-[#D1D4DC] hover:text-[#2962FF] transition"
-          >
-            Тарифы
-          </Link>
-          <Link
-            href="/#contact"
-            className="text-[#D1D4DC] hover:text-[#2962FF] transition"
-          >
-            Контакты
-          </Link>
-        </nav>
+<nav className="hidden md:flex items-center gap-6">
+  <Link
+    href="/projects"
+    className="text-[#D1D4DC] hover:text-[#2962FF] transition"
+  >
+    Мои проекты
+  </Link>
+  <Link
+    href="/#features"
+    className="text-[#D1D4DC] hover:text-[#2962FF] transition"
+  >
+    Возможности
+  </Link>
+  <Link
+    href="/#pricing"
+    className="text-[#D1D4DC] hover:text-[#2962FF] transition"
+  >
+    Тарифы
+  </Link>
+  <Link
+    href="/brands"
+    className="text-[#D1D4DC] hover:text-[#2962FF] transition"
+  >
+    Бренды
+  </Link>
+</nav>
 
         {/* Кнопка входа */}
         <Link
