@@ -93,3 +93,94 @@ export async function deleteProject(projectId: string) {
   });
   revalidatePath("/projects");
 }
+import { calculatePanel, type InputConsumer } from "@/lib/calculator/calculator";
+
+/**
+ * 🧮 Рассчитать проект — подобрать автоматы, УЗО, кабели
+ * И сохранить результаты в БД
+ */
+export async function calculateProject(projectId: string) {
+  // Загружаем проект со всеми данными
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: {
+      rooms: {
+        include: { consumers: true },
+      },
+    },
+  });
+
+  if (!project) {
+    throw new Error("Проект не найден");
+  }
+
+  // Собираем потребителей для калькулятора
+  const inputConsumers: InputConsumer[] = project.rooms.flatMap((room) =>
+    room.consumers.map((c) => ({
+      id: c.id,
+      type: c.type,
+      name: c.name,
+      power: c.power,
+      quantity: c.quantity,
+      dedicatedLine: c.dedicatedLine,
+      voltage: c.voltage,
+      powerFactor: c.powerFactor,
+      roomId: room.id,
+      roomName: room.name,
+    }))
+  );
+
+  if (inputConsumers.length === 0) {
+    throw new Error("В проекте нет потребителей. Добавьте их перед расчётом.");
+  }
+
+  // 🧮 Запуск движка
+  const result = calculatePanel(inputConsumers, project.networkType);
+
+  // Удаляем старые расчёты (если были)
+  await prisma.panel.deleteMany({
+    where: { projectId },
+  });
+
+  // Создаём новый щит с линиями
+  const panel = await prisma.panel.create({
+    data: {
+      name: "Главный щит",
+      projectId,
+      lines: {
+        create: result.lines.map((line, idx) => ({
+          name: line.name,
+          order: idx,
+          lineType: line.lineType,
+          calculatedPower: line.calculatedPower,
+          calculatedCurrent: line.calculatedCurrent,
+          // Подключение потребителей к линиям
+          consumers: {
+            connect: line.consumers.map((c) => ({ id: c.id })),
+          },
+        })),
+      },
+    },
+    include: { lines: true },
+  });
+
+  // Обновляем общие параметры проекта
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      totalPower: result.totalPower,
+      calculatedPower: result.calculatedPower,
+      inputCurrent: result.inputCurrent,
+      status: "CALCULATED",
+    },
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+
+  return {
+    success: true,
+    result,
+    panelId: panel.id,
+    warnings: result.warnings,
+  };
+}
