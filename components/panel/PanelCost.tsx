@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -14,8 +13,15 @@ import { ShoppingCart, Loader2 } from "lucide-react";
 import { fetchPriceEstimate } from "@/app/constructor/actions";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 
-export default function PanelCost({ result }: { result: CalculationResult }) {
-  const [brand, setBrand] = useState("iek");
+export default function PanelCost({
+  result,
+  brand,
+  onBrandChange,
+}: {
+  result: CalculationResult;
+  brand: string;
+  onBrandChange: (brand: string) => void;
+}) {
   const [loading, setLoading] = useState(false);
   const [estimate, setEstimate] = useState<{
     total: number;
@@ -44,22 +50,24 @@ export default function PanelCost({ result }: { result: CalculationResult }) {
               Стоимость оборудования
             </h3>
             <p className="text-sm text-[#787B86]">
-              Примерная смета для сборки щита
+              Выберите бренд — щит и цена обновятся автоматически
             </p>
           </div>
 
-          <div className="w-48">
-            <Select value={brand} onValueChange={setBrand}>
+          <div className="w-56">
+            <Select value={brand} onValueChange={onBrandChange}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="iek">IEK (бюджет)</SelectItem>
-                <SelectItem value="ekf">EKF (бюджет)</SelectItem>
-                <SelectItem value="dekraft">DEKraft (средний)</SelectItem>
-                <SelectItem value="schneider">Schneider (премиум)</SelectItem>
-                <SelectItem value="abb">ABB (премиум)</SelectItem>
-                <SelectItem value="legrand">Legrand (премиум)</SelectItem>
+                <SelectItem value="iek">🇷🇺 IEK (бюджет)</SelectItem>
+                <SelectItem value="ekf">🇷🇺 EKF (бюджет)</SelectItem>
+                <SelectItem value="dekraft">🇷🇺 DEKraft (средний)</SelectItem>
+                <SelectItem value="schneider">
+                  🇫🇷 Schneider (премиум)
+                </SelectItem>
+                <SelectItem value="abb">🇨🇭 ABB (премиум)</SelectItem>
+                <SelectItem value="legrand">🇫🇷 Legrand (премиум)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -131,3 +139,4 @@ function CostItem({
     </div>
   );
 }
+

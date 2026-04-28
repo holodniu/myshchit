@@ -4,7 +4,12 @@ import { useState, useTransition } from "react";
 import { calculateProject } from "@/app/constructor/actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Calculator, Loader2, Zap, AlertTriangle, CheckCircle2 } from "lucide-react";
+import {
+  Calculator,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+} from "lucide-react";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 import PanelVisualization from "@/components/panel/PanelVisualization";
 import PanelCost from "@/components/panel/PanelCost";
@@ -19,6 +24,9 @@ export default function CalculationResultPanel({
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<CalculationResult | null>(initialResult);
   const [error, setError] = useState<string | null>(null);
+
+  // 🎯 Состояние бренда — единое для визуализации и цены
+  const [brand, setBrand] = useState<string>("abb");
 
   const handleCalculate = () => {
     setError(null);
@@ -124,7 +132,7 @@ export default function CalculationResultPanel({
         </CardContent>
       </Card>
 
-      {/* Список линий */}
+      {/* Список линий (список) */}
       <div>
         <h3 className="text-2xl font-bold text-[#D1D4DC] mb-4">
           Линии щита ({result.lines.length})
@@ -135,11 +143,13 @@ export default function CalculationResultPanel({
           ))}
         </div>
       </div>
-      {/* 🎨 Визуализация щита */}
-<PanelVisualization result={result} />
 
-{/* 💰 Стоимость */}
-<PanelCost result={result} />
+      {/* 🎨 Визуализация щита — с выбранным брендом */}
+      <PanelVisualization result={result} brand={brand} />
+
+      {/* 💰 Стоимость — меняет бренд через onBrandChange */}
+      <PanelCost result={result} brand={brand} onBrandChange={setBrand} />
+
       <Button
         variant="outline"
         onClick={handleCalculate}
@@ -201,11 +211,7 @@ function LineCard({
   return (
     <Card className="overflow-hidden">
       <div className="flex">
-        {/* Цветная полоска */}
-        <div
-          className="w-1 shrink-0"
-          style={{ backgroundColor: color }}
-        />
+        <div className="w-1 shrink-0" style={{ backgroundColor: color }} />
         <div className="flex-1 p-4">
           <div className="flex items-start justify-between gap-4 mb-3 flex-wrap">
             <div>
@@ -213,10 +219,7 @@ function LineCard({
                 <span className="text-xs text-[#787B86]">#{index}</span>
                 <span
                   className="px-2 py-0.5 text-xs rounded-full font-semibold"
-                  style={{
-                    backgroundColor: `${color}20`,
-                    color: color,
-                  }}
+                  style={{ backgroundColor: `${color}20`, color: color }}
                 >
                   {typeLabel[line.lineType]}
                 </span>
@@ -235,7 +238,6 @@ function LineCard({
             </div>
           </div>
 
-          {/* Оборудование */}
           <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#363A45]">
             <Equipment
               icon="⚡"
@@ -253,7 +255,13 @@ function LineCard({
                 color="#26A69A"
               />
             ) : (
-              <Equipment icon="—" title="УЗО" value="Не требуется" sub="" color="#50535E" />
+              <Equipment
+                icon="—"
+                title="УЗО"
+                value="Не требуется"
+                sub=""
+                color="#50535E"
+              />
             )}
             <Equipment
               icon="🔌"
@@ -264,7 +272,6 @@ function LineCard({
             />
           </div>
 
-          {/* Список потребителей */}
           <div className="mt-3 pt-3 border-t border-[#363A45] text-xs text-[#787B86]">
             Потребители: {line.consumers.map((c) => c.name).join(", ")}
           </div>
@@ -299,3 +306,4 @@ function Equipment({
     </div>
   );
 }
+

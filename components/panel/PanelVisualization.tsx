@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -20,26 +20,36 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 import DinRail from "./DinRail";
+import Busbar from "./Busbar";
 import {
   buildPanelLayout,
   distributeOnRails,
   type PanelGroup,
-  type PanelItem,
 } from "@/lib/calculator/panel-layout";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 import { Card, CardContent } from "@/components/ui/card";
 import { Package, GripVertical } from "lucide-react";
-// Перед return добавляем комментарий-заголовок
+
 export default function PanelVisualization({
   result,
+  brand = "abb",
 }: {
   result: CalculationResult;
+  brand?: string;
 }) {
-  // Строим первоначальную схему
-  const initialLayout = buildPanelLayout(result);
-  const [groups, setGroups] = useState<PanelGroup[]>(initialLayout.groups);
+  // Пересчитываем layout при смене бренда
+  const layout = useMemo(
+    () => buildPanelLayout(result, brand),
+    [result, brand]
+  );
 
-  // Сенсоры для drag-and-drop
+  const [groups, setGroups] = useState<PanelGroup[]>(layout.groups);
+
+  // Обновляем groups при изменении бренда или result
+  useEffect(() => {
+    setGroups(layout.groups);
+  }, [layout]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
@@ -52,8 +62,6 @@ export default function PanelVisualization({
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
-
-    // Не перемещаем вводной автомат (первая группа)
     if (active.id === "input" || over.id === "input") return;
 
     const oldIndex = groups.findIndex((g) => g.id === active.id);
@@ -64,16 +72,18 @@ export default function PanelVisualization({
     }
   };
 
-  // Собираем все модули из всех групп в плоский список для рейки
   const allItems = groups.flatMap((g) => g.items);
   const rails = distributeOnRails(
     allItems,
-    initialLayout.recommendedEnclosure.modulesPerRail
+    layout.recommendedEnclosure.modulesPerRail
   );
+
+  // Кол-во клемм на шинах = модулей на рейке × 2 (запас)
+  const busbarTerminals = Math.max(16, layout.recommendedEnclosure.modulesPerRail * 2);
 
   return (
     <div className="space-y-6">
-      {/* Визуализация щита */}
+      {/* 🏗 Визуализация щита */}
       <Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -83,77 +93,75 @@ export default function PanelVisualization({
                 Схема щита
               </h3>
               <p className="text-sm text-[#787B86]">
-                Корпус: {initialLayout.recommendedEnclosure.name} ·{" "}
-                {initialLayout.totalModules} из{" "}
-                {initialLayout.recommendedEnclosure.modules} модулей ·{" "}
+                Корпус: {layout.recommendedEnclosure.name} · Бренд:{" "}
+                <span className="text-[#2962FF] font-semibold">{layout.brand}</span> ·{" "}
+                {layout.totalModules} из {layout.recommendedEnclosure.modules} модулей ·{" "}
                 <span className="text-[#26A69A]">
-                  резерв {initialLayout.reserveModules}
+                  резерв {layout.reserveModules}
                 </span>
               </p>
             </div>
           </div>
 
-{/* Корпус */}
-<div className="bg-gradient-to-br from-[#eceff1] to-[#cfd8dc] border-4 border-[#90a4ae] rounded-lg p-6 shadow-2xl">
-  {/* Верхние крепёжные винты */}
-  <div className="flex justify-between mb-3">
-    <div className="w-3 h-3 rounded-full bg-[#78909c] border border-[#37474f]" />
-    <div className="w-3 h-3 rounded-full bg-[#78909c] border border-[#37474f]" />
-  </div>
-  
-  {/* Имитация шины PE (зелёная) сверху */}
-  <div className="mb-4 flex items-center gap-2 p-2 bg-[#fff9c4] border-2 border-[#f9a825] rounded-sm">
-    <div className="text-xs font-mono text-[#827717] font-bold">PE</div>
-    <div className="flex-1 h-2 bg-gradient-to-r from-[#ffeb3b] via-[#fbc02d] to-[#ffeb3b] rounded-sm relative">
-      {/* Клеммы на шине */}
-      {Array.from({ length: 20 }).map((_, i) => (
-        <div
-          key={i}
-          className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#8d6e63] rounded-full"
-          style={{ left: `${(i + 1) * 5}%` }}
-        />
-      ))}
-    </div>
-  </div>
+          {/* 📦 Корпус щита */}
+          <div className="bg-gradient-to-br from-[#eceff1] to-[#cfd8dc] border-4 border-[#90a4ae] rounded-lg p-6 shadow-2xl">
+            {/* Верхние крепёжные винты корпуса */}
+            <div className="flex justify-between mb-4">
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner">
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-2 h-px bg-[#263238]" />
+                </div>
+              </div>
+              <div className="text-xs font-mono text-[#455a64] font-bold">
+                {layout.recommendedEnclosure.name}
+              </div>
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner">
+                <div className="w-full h-full flex items-center justify-center">
+                  <div className="w-2 h-px bg-[#263238]" />
+                </div>
+              </div>
+            </div>
 
-  {/* Шина N (синяя) */}
-  <div className="mb-4 flex items-center gap-2 p-2 bg-[#e3f2fd] border-2 border-[#1976d2] rounded-sm">
-    <div className="text-xs font-mono text-[#0d47a1] font-bold">N</div>
-    <div className="flex-1 h-2 bg-gradient-to-r from-[#90caf9] via-[#42a5f5] to-[#90caf9] rounded-sm relative">
-      {Array.from({ length: 20 }).map((_, i) => (
-        <div
-          key={i}
-          className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-[#8d6e63] rounded-full"
-          style={{ left: `${(i + 1) * 5}%` }}
-        />
-      ))}
-    </div>
-  </div>
+            {/* 🟡 Верхние шины */}
+            <div className="mb-5 space-y-2">
+              <Busbar type="PE" label="PE" terminals={busbarTerminals} />
+              <Busbar type="N" label="N" terminals={busbarTerminals} />
+            </div>
 
-  {/* Модули */}
-  {rails.map((railItems, idx) => (
-    <DinRail
-      key={idx}
-      items={railItems as any}
-      railIndex={idx}
-      modulesPerRail={initialLayout.recommendedEnclosure.modulesPerRail}
-    />
-  ))}
+            {/* ⚡ DIN-рейки с модулями */}
+            {rails.map((railItems, idx) => (
+              <DinRail
+                key={idx}
+                items={railItems as any}
+                railIndex={idx}
+                modulesPerRail={layout.recommendedEnclosure.modulesPerRail}
+              />
+            ))}
 
-  {/* Нижние крепёжные винты */}
-  <div className="flex justify-between mt-3">
-    <div className="w-3 h-3 rounded-full bg-[#78909c] border border-[#37474f]" />
-    <div className="w-3 h-3 rounded-full bg-[#78909c] border border-[#37474f]" />
-  </div>
-</div>
+            {/* 🟡 Нижние шины */}
+            <div className="mt-5 space-y-2">
+              <Busbar type="N" label="N" terminals={busbarTerminals} />
+              <Busbar type="PE" label="PE" terminals={busbarTerminals} />
+            </div>
+
+            {/* Нижние крепёжные винты */}
+            <div className="flex justify-between mt-4">
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
+              <div className="text-xs text-[#546e7a]">
+                🛡️ МОЙ ЩИТ · Автоматический расчёт
+              </div>
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
+            </div>
+          </div>
 
           <div className="mt-4 text-xs text-[#787B86] text-center">
-            💡 Модули показаны в реальных пропорциях (1 модуль ≈ 17.5 мм)
+            💡 1 модуль ≈ 17.5 мм · Все модули одного бренда{" "}
+            <span className="text-[#2962FF] font-semibold">{layout.brand}</span>
           </div>
         </CardContent>
       </Card>
 
-      {/* Drag-and-drop список групп */}
+      {/* 📋 Drag-and-drop список групп */}
       <Card>
         <CardContent className="p-6">
           <div className="mb-4">
@@ -187,9 +195,6 @@ export default function PanelVisualization({
   );
 }
 
-// ───────────────────────────────────────────────
-// Компонент одной группы (с drag-handle)
-// ───────────────────────────────────────────────
 function SortableGroup({ group }: { group: PanelGroup }) {
   const isInput = group.id === "input";
 
@@ -218,7 +223,6 @@ function SortableGroup({ group }: { group: PanelGroup }) {
         isInput ? "opacity-80" : "hover:border-[#2962FF]"
       }`}
     >
-      {/* Иконка перетаскивания */}
       {!isInput && (
         <button
           className="touch-none text-[#787B86] hover:text-[#D1D4DC] cursor-grab active:cursor-grabbing"
@@ -231,13 +235,11 @@ function SortableGroup({ group }: { group: PanelGroup }) {
       )}
       {isInput && <div className="w-5 h-5 shrink-0" />}
 
-      {/* Цветовая полоска */}
       <div
         className="w-1 self-stretch rounded-full shrink-0"
         style={{ backgroundColor: group.color }}
       />
 
-      {/* Название */}
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-[#D1D4DC] truncate">
           {group.title}
@@ -251,7 +253,6 @@ function SortableGroup({ group }: { group: PanelGroup }) {
         </div>
       </div>
 
-      {/* Количество модулей */}
       <div className="shrink-0 text-right">
         <div className="text-2xl font-bold text-[#D1D4DC] font-mono">
           {totalModules}
@@ -261,3 +262,4 @@ function SortableGroup({ group }: { group: PanelGroup }) {
     </div>
   );
 }
+

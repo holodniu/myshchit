@@ -4,7 +4,6 @@ import type { CalculationResult } from "./calculator";
 // 📐 ТИПЫ
 // ═══════════════════════════════════════════════════
 
-// Элемент на DIN-рейке
 export type PanelItem = {
   id: string;
   type: "INPUT" | "RCD" | "BREAKER" | "EMPTY";
@@ -13,7 +12,6 @@ export type PanelItem = {
   label: string;
   sublabel?: string;
   lineIndex?: number;
-  // Дополнительные поля для реалистичной графики
   qfLabel?: string;
   brand?: string;
   characteristic?: "B" | "C" | "D";
@@ -33,6 +31,7 @@ export type PanelLayout = {
   totalModules: number;
   recommendedEnclosure: EnclosureSize;
   reserveModules: number;
+  brand: string;
 };
 
 export type EnclosureSize = {
@@ -43,7 +42,25 @@ export type EnclosureSize = {
 };
 
 // ═══════════════════════════════════════════════════
-// 📦 СТАНДАРТНЫЕ КОРПУСА ЩИТОВ
+// 🏭 СПРАВОЧНИК БРЕНДОВ (slug → display name)
+// ═══════════════════════════════════════════════════
+
+export const BRAND_DISPLAY_NAMES: Record<string, string> = {
+  iek: "IEK",
+  ekf: "EKF",
+  dekraft: "DEKraft",
+  schneider: "Schneider Electric",
+  abb: "ABB",
+  legrand: "Legrand",
+  dkc: "DKC",
+};
+
+export function getBrandDisplayName(slug: string): string {
+  return BRAND_DISPLAY_NAMES[slug.toLowerCase()] || "ABB";
+}
+
+// ═══════════════════════════════════════════════════
+// 📦 КОРПУСА
 // ═══════════════════════════════════════════════════
 
 const ENCLOSURES: EnclosureSize[] = [
@@ -59,10 +76,17 @@ const ENCLOSURES: EnclosureSize[] = [
 // 🏗 ПОСТРОЕНИЕ СХЕМЫ ЩИТА
 // ═══════════════════════════════════════════════════
 
-export function buildPanelLayout(result: CalculationResult): PanelLayout {
+/**
+ * Собирает схему щита для ОДНОГО выбранного бренда
+ * @param result - результат расчёта
+ * @param brandSlug - выбранный бренд ("abb", "iek", "schneider"...)
+ */
+export function buildPanelLayout(
+  result: CalculationResult,
+  brandSlug: string = "abb"
+): PanelLayout {
   const groups: PanelGroup[] = [];
 
-  // Цвета линий по типу
   const typeColors: Record<string, string> = {
     LIGHTING: "#FFD54F",
     SOCKETS: "#2962FF",
@@ -70,16 +94,14 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
     MIXED: "#26A69A",
   };
 
-  // Счётчики для QF/QD номеров
+  // 🎯 ОДИН бренд на весь щит — как в реальной жизни
+  const panelBrand = getBrandDisplayName(brandSlug);
+
+  // Счётчики для QF/QD
   let qfCounter = 0;
   let qdCounter = 0;
 
-  // Чередование брендов для разнообразия
-  const BRANDS_CYCLE = ["ABB", "Schneider Electric", "IEK"];
-  const getBrandForLine = (index: number) =>
-    BRANDS_CYCLE[index % BRANDS_CYCLE.length];
-
-  // 1️⃣ Вводной автомат (всегда первый)
+  // 1️⃣ Вводной автомат
   qfCounter++;
   groups.push({
     id: "input",
@@ -94,19 +116,18 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
         label: `C${result.inputBreaker.current}`,
         sublabel: "Ввод",
         qfLabel: `QF${qfCounter}`,
-        brand: "ABB",
+        brand: panelBrand,
         characteristic: "C",
       },
     ],
   });
 
-  // 2️⃣ Обрабатываем линии
+  // 2️⃣ Линии
   result.lines.forEach((line, idx) => {
     const color = typeColors[line.lineType];
-    const lineBrand = getBrandForLine(idx);
     const items: PanelItem[] = [];
 
-    // УЗО (если есть) — идёт ПЕРЕД автоматом
+    // УЗО
     if (line.rcd) {
       qdCounter++;
       items.push({
@@ -118,7 +139,7 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
         sublabel: `УЗО ${line.rcd.sensitivity}мА`,
         lineIndex: idx,
         qfLabel: `QD${qdCounter}`,
-        brand: lineBrand,
+        brand: panelBrand, // 🎯 тот же бренд
         sensitivity: line.rcd.sensitivity,
         rcdType: line.rcd.type,
       });
@@ -135,7 +156,7 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
       sublabel: line.name,
       lineIndex: idx,
       qfLabel: `QF${qfCounter}`,
-      brand: lineBrand,
+      brand: panelBrand, // 🎯 тот же бренд
       characteristic: line.breaker.characteristic,
     });
 
@@ -147,13 +168,11 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
     });
   });
 
-  // 3️⃣ Считаем общие модули и корпус
   const totalModules = groups.reduce(
     (sum, g) => sum + g.items.reduce((s, i) => s + i.modules, 0),
     0
   );
 
-  // Подбираем корпус с запасом 25%
   const requiredModules = Math.ceil(totalModules * 1.25);
   const recommendedEnclosure =
     ENCLOSURES.find((e) => e.modules >= requiredModules) ||
@@ -166,17 +185,14 @@ export function buildPanelLayout(result: CalculationResult): PanelLayout {
     totalModules,
     recommendedEnclosure,
     reserveModules,
+    brand: panelBrand,
   };
 }
 
 // ═══════════════════════════════════════════════════
-// 📏 РАСПРЕДЕЛЕНИЕ ПО DIN-РЕЙКАМ
+// 📏 РАСПРЕДЕЛЕНИЕ ПО РЕЙКАМ
 // ═══════════════════════════════════════════════════
 
-/**
- * Разбивает модули по DIN-рейкам с учётом вместимости
- * Не разрывает группы (УЗО + автомат остаются вместе)
- */
 export function distributeOnRails(
   items: PanelItem[],
   modulesPerRail: number
@@ -186,7 +202,6 @@ export function distributeOnRails(
   let currentWidth = 0;
 
   for (const item of items) {
-    // Если не влезает — новая рейка
     if (currentWidth + item.modules > modulesPerRail) {
       rails.push([]);
       currentRail++;
@@ -198,3 +213,4 @@ export function distributeOnRails(
 
   return rails;
 }
+
