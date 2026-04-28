@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import LogoutButton from "./LogoutButton";
-import { User } from "lucide-react";
+import { User, Shield } from "lucide-react";
 
 export default async function Header() {
   const session = await auth();
+  const userRole = (session?.user as any)?.role;
+  const isAdmin = userRole === "ADMIN";
 
   return (
     <header className="sticky top-0 z-50 border-b border-[#363A45] bg-[#1E222D]/95 backdrop-blur">
@@ -46,6 +48,15 @@ export default async function Header() {
           >
             Бренды
           </Link>
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className="flex items-center gap-1 text-[#FF9800] hover:text-[#FFB74D] transition font-semibold"
+            >
+              <Shield className="w-4 h-4" />
+              Админка
+            </Link>
+          )}
         </nav>
 
         {session?.user ? (
@@ -55,6 +66,11 @@ export default async function Header() {
               <span className="text-[#D1D4DC]">
                 {session.user.name || session.user.email}
               </span>
+              {isAdmin && (
+                <span className="text-xs px-2 py-0.5 bg-[#FF9800]/20 text-[#FF9800] border border-[#FF9800]/30 rounded">
+                  ADMIN
+                </span>
+              )}
             </div>
             <LogoutButton />
           </div>
@@ -70,3 +86,4 @@ export default async function Header() {
     </header>
   );
 }
+
