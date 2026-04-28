@@ -21,6 +21,7 @@ import { CSS } from "@dnd-kit/utilities";
 
 import DinRail from "./DinRail";
 import Busbar from "./Busbar";
+import PanelSpecification from "./PanelSpecification";
 import {
   buildPanelLayout,
   distributeOnRails,
@@ -71,9 +72,6 @@ export default function PanelVisualization({
     }
   };
 
-  // 🎯 НОВАЯ ЛОГИКА РАЗМЕЩЕНИЯ:
-  // Рейка 1: Ввод + ВСЕ УЗО (10мА сначала, потом 30мА, потом остальные)
-  // Рейка 2+: Автоматы отсортированные по току (от большего к меньшему)
   const { inputItems, uzoItems, breakerItems } = useMemo(() => {
     const input: PanelItem[] = [];
     const uzos: PanelItem[] = [];
@@ -91,10 +89,8 @@ export default function PanelVisualization({
       }
     }
 
-    // УЗО: сначала критичные (10мА), потом стандартные (30мА)
     uzos.sort((a, b) => (a.sensitivity || 99) - (b.sensitivity || 99));
 
-    // Автоматы: от большего тока к меньшему
     breakers.sort((a, b) => {
       const extractCurrent = (label: string) => {
         const match = label.match(/(\d+)/);
@@ -140,12 +136,11 @@ export default function PanelVisualization({
                 </span>
               </p>
               <p className="text-xs text-[#50535E] mt-1">
-                💡 Рейка 1: ввод + УЗО · Рейка 2+: автоматы по току (от большего к меньшему)
+                💡 Описание каждого модуля — в таблице спецификации ниже
               </p>
             </div>
           </div>
 
-          {/* 📦 Корпус щита */}
           <div className="bg-gradient-to-br from-[#eceff1] to-[#cfd8dc] border-4 border-[#90a4ae] rounded-lg p-6 shadow-2xl">
             <div className="flex justify-between mb-4">
               <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
@@ -155,13 +150,11 @@ export default function PanelVisualization({
               <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
             </div>
 
-            {/* 🟡 Верхние шины */}
             <div className="mb-5 space-y-2">
               <Busbar type="PE" label="PE" terminals={busbarTerminals} />
               <Busbar type="N" label="N" terminals={busbarTerminals} />
             </div>
 
-            {/* ⚡ DIN-рейки */}
             {rails.map((railItems, idx) => (
               <DinRail
                 key={idx}
@@ -171,7 +164,6 @@ export default function PanelVisualization({
               />
             ))}
 
-            {/* 🟡 Нижние шины */}
             <div className="mt-5 space-y-2">
               <Busbar type="N" label="N" terminals={busbarTerminals} />
               <Busbar type="PE" label="PE" terminals={busbarTerminals} />
@@ -187,13 +179,17 @@ export default function PanelVisualization({
           </div>
 
           <div className="mt-4 text-xs text-[#787B86] text-center">
-            💡 1 модуль ≈ 17.5 мм · Все модули одного бренда{" "}
+            💡 Все модули бренда{" "}
             <span className="text-[#2962FF] font-semibold">{layout.brand}</span>
+            {" · "}Расшифровка позиций — в таблице ниже
           </div>
         </CardContent>
       </Card>
 
-      {/* 📋 Drag-and-drop список групп (логическая группировка по линиям) */}
+      {/* 📋 Спецификация (новое!) */}
+      <PanelSpecification groups={groups} />
+
+      {/* Drag-and-drop список */}
       <Card>
         <CardContent className="p-6">
           <div className="mb-4">
@@ -294,5 +290,6 @@ function SortableGroup({ group }: { group: PanelGroup }) {
     </div>
   );
 }
+
 
 
