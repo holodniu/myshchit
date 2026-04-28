@@ -1,8 +1,3 @@
-/**
- * 🧮 Движок расчёта электрощита
- * Собственные инженерные алгоритмы по ПУЭ
- */
-
 import { ConsumerType, NetworkType } from "@prisma/client";
 
 // ═══════════════════════════════════════════════════
@@ -13,11 +8,11 @@ export type InputConsumer = {
   id: string;
   type: ConsumerType;
   name: string;
-  power: number;      // Вт
+  power: number;
   quantity: number;
   dedicatedLine: boolean;
-  voltage: number;    // 220 или 380
-  powerFactor: number; // cos φ (0.85–1.0)
+  voltage: number;
+  powerFactor: number;
   roomId: string;
   roomName: string;
 };
@@ -26,26 +21,24 @@ export type CalculatedLine = {
   name: string;
   lineType: "LIGHTING" | "SOCKETS" | "DEDICATED" | "MIXED";
   consumers: InputConsumer[];
-  // Расчётные параметры
-  totalPower: number;        // Вт
-  calculatedPower: number;   // с учётом коэфф. одновременности
-  calculatedCurrent: number; // А
+  totalPower: number;
+  calculatedPower: number;
+  calculatedCurrent: number;
   voltage: number;
-  // Подобранное оборудование
   breaker: {
-    current: number;           // номинал, А
+    current: number;
     characteristic: "B" | "C" | "D";
     poles: number;
   };
   rcd?: {
-    current: number;     // А
-    sensitivity: number; // мА
+    current: number;
+    sensitivity: number;
     type: "AC" | "A" | "B";
     poles: number;
   };
   cable: {
-    section: number;  // мм²
-    cores: number;    // 3 или 5
+    section: number;
+    cores: number;
     maxCurrent: number;
   };
 };
@@ -65,44 +58,20 @@ export type CalculationResult = {
 };
 
 // ═══════════════════════════════════════════════════
-// 🔧 СПРАВОЧНЫЕ ДАННЫЕ
+// 📊 КОНСТАНТЫ
 // ═══════════════════════════════════════════════════
 
 const BREAKER_CURRENTS = [6, 10, 16, 20, 25, 32, 40, 50, 63] as const;
 const RCD_CURRENTS = [25, 40, 63, 80, 100] as const;
 
-// Таблица сечений меди по автомату (ПУЭ, для медной проводки в стене)
 const BREAKER_TO_CABLE_SECTION: Record<number, number> = {
-  6: 1.5,
-  10: 1.5,
-  16: 2.5,
-  20: 4,
-  25: 4,
-  32: 6,
-  40: 10,
-  50: 10,
-  63: 16,
+  6: 1.5, 10: 1.5, 16: 2.5, 20: 4, 25: 4, 32: 6, 40: 10, 50: 10, 63: 16,
 };
 
-// Макс. ток по сечению кабеля ВВГнг, медь
 const CABLE_MAX_CURRENT: Record<number, number> = {
-  1.5: 19,
-  2.5: 27,
-  4: 38,
-  6: 46,
-  10: 70,
-  16: 85,
+  1.5: 19, 2.5: 27, 4: 38, 6: 46, 10: 70, 16: 85,
 };
 
-// Коэффициент одновременности (ПУЭ)
-function getSimultaneityFactor(linesCount: number): number {
-  if (linesCount <= 3) return 1.0;
-  if (linesCount <= 5) return 0.8;
-  if (linesCount <= 9) return 0.7;
-  return 0.6;
-}
-
-// Тип потребителя → нужно ли ставить на отдельную линию (по умолчанию)
 const ALWAYS_DEDICATED: ConsumerType[] = [
   "COOKTOP",
   "OVEN",
@@ -115,14 +84,17 @@ const ALWAYS_DEDICATED: ConsumerType[] = [
   "WARM_FLOOR",
 ];
 
+function getSimultaneityFactor(linesCount: number): number {
+  if (linesCount <= 3) return 1.0;
+  if (linesCount <= 5) return 0.8;
+  if (linesCount <= 9) return 0.7;
+  return 0.6;
+}
+
 // ═══════════════════════════════════════════════════
-// ⚡ ОСНОВНЫЕ ФУНКЦИИ
+// ⚡ ФУНКЦИИ ПОДБОРА
 // ═══════════════════════════════════════════════════
 
-/**
- * Подбирает ближайший БОЛЬШИЙ номинал автомата
- * Пример: ток 14.5 А → возвращает 16
- */
 export function selectBreakerRating(current: number): number {
   const rating = BREAKER_CURRENTS.find((c) => c >= current);
   if (!rating) {
@@ -133,9 +105,6 @@ export function selectBreakerRating(current: number): number {
   return rating;
 }
 
-/**
- * Подбирает сечение кабеля по номиналу автомата (ПУЭ)
- */
 export function selectCableSection(breakerRating: number): {
   section: number;
   maxCurrent: number;
@@ -145,10 +114,6 @@ export function selectCableSection(breakerRating: number): {
   return { section, maxCurrent };
 }
 
-/**
- * Рассчитывает ток
- * I = P / (U × cos φ × √n)   где n = 1 для 1ф, 3 для 3ф
- */
 export function calculateCurrent(
   power: number,
   voltage: number,
@@ -161,7 +126,15 @@ export function calculateCurrent(
 }
 
 /**
- * Определяет параметры УЗО для линии
+ * 🛡️ Подбор УЗО — по рекомендациям практикующих электриков
+ * 
+ * Правила:
+ * - 💧 Мокрые зоны (бойлер, стиралка, тёплый пол) → 10мА тип A
+ * - 🚗 Электромобиль → 30мА тип B (обязательно ПУЭ)
+ * - 🌳 Улица → 30мА тип AC (обязательно ПУЭ)
+ * - 💡 Свет → без УЗО
+ * - ❄️🧊🍳🔥 Сухие выделенные (кондёр, холодильник, варочная, духовка) → БЕЗ УЗО
+ * - 🔌 Розетки и смешанные → 30мА тип AC
  */
 function selectRcd(line: {
   lineType: string;
@@ -175,8 +148,9 @@ function selectRcd(line: {
       c.type === "WASHING_MACHINE" ||
       c.type === "WARM_FLOOR"
   );
+  const hasOutdoor = line.consumers.some((c) => c.type === "OUTDOOR");
 
-  // Зарядка ЭМ — тип B
+  // 🚗 ЭМ — 30мА тип B
   if (hasEvCharger) {
     return {
       current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
@@ -186,7 +160,7 @@ function selectRcd(line: {
     };
   }
 
-  // Мокрые зоны — УЗО 10 мА, тип A
+  // 💧 Мокрые зоны — 10мА
   if (hasWater) {
     return {
       current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
@@ -196,12 +170,28 @@ function selectRcd(line: {
     };
   }
 
-  // Свет — без УЗО (опционально — 30 мА)
+  // 🌳 Улица — 30мА
+  if (hasOutdoor) {
+    return {
+      current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
+      sensitivity: 30,
+      type: "AC",
+      poles: 2,
+    };
+  }
+
+  // 💡 Свет — без УЗО
   if (line.lineType === "LIGHTING") {
     return undefined;
   }
 
-  // Розетки и смешанные — УЗО 30 мА, тип AC
+  // 🆕 Сухие выделенные приборы — БЕЗ УЗО
+  // (кондиционер, холодильник, варочная, духовка, мастерская)
+  if (line.lineType === "DEDICATED") {
+    return undefined;
+  }
+
+  // 🔌 Розетки и смешанные — 30мА
   return {
     current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
     sensitivity: 30,
@@ -216,7 +206,7 @@ function selectNearestRcdCurrent(current: number): number {
 }
 
 // ═══════════════════════════════════════════════════
-// 🏗 ГЛАВНАЯ ФУНКЦИЯ РАСЧЁТА
+// 🧮 ГЛАВНАЯ ФУНКЦИЯ РАСЧЁТА
 // ═══════════════════════════════════════════════════
 
 export function calculatePanel(
@@ -226,19 +216,13 @@ export function calculatePanel(
   const warnings: string[] = [];
   const lines: CalculatedLine[] = [];
 
-  // ─── 1. Группируем потребителей в линии ───────────
-  
-  // Потребители с флагом "отдельная линия" или из списка ALWAYS_DEDICATED
   const dedicated = consumers.filter(
     (c) => c.dedicatedLine || ALWAYS_DEDICATED.includes(c.type)
   );
-
-  // Общие (свет и розетки) группируем по комнатам
   const shared = consumers.filter(
     (c) => !c.dedicatedLine && !ALWAYS_DEDICATED.includes(c.type)
   );
 
-  // Группа "Свет" — по комнате
   const lightByRoom = new Map<string, InputConsumer[]>();
   const socketsByRoom = new Map<string, InputConsumer[]>();
   const otherByRoom = new Map<string, InputConsumer[]>();
@@ -256,16 +240,13 @@ export function calculatePanel(
     }
   }
 
-  // ─── 2. Создаём линии освещения ───────────────────
+  // 💡 Свет
   for (const [, roomConsumers] of lightByRoom) {
     const roomName = roomConsumers[0].roomName;
-    const totalPower = roomConsumers.reduce(
-      (s, c) => s + c.power * c.quantity,
-      0
-    );
+    const totalPower = roomConsumers.reduce((s, c) => s + c.power * c.quantity, 0);
     const voltage = 220;
     const current = calculateCurrent(totalPower, voltage, 1.0);
-    const breakerCurrent = selectBreakerRating(current * 1.1); // запас 10%
+    const breakerCurrent = selectBreakerRating(current * 1.1);
     const cable = selectCableSection(breakerCurrent);
 
     const line: CalculatedLine = {
@@ -283,13 +264,10 @@ export function calculatePanel(
     lines.push(line);
   }
 
-  // ─── 3. Линии розеток ─────────────────────────────
+  // 🔌 Розетки
   for (const [, roomConsumers] of socketsByRoom) {
     const roomName = roomConsumers[0].roomName;
-    const totalPower = roomConsumers.reduce(
-      (s, c) => s + c.power * c.quantity,
-      0
-    );
+    const totalPower = roomConsumers.reduce((s, c) => s + c.power * c.quantity, 0);
     const voltage = 220;
     const current = calculateCurrent(totalPower, voltage, 1.0);
     const breakerCurrent = selectBreakerRating(current * 1.1);
@@ -310,13 +288,10 @@ export function calculatePanel(
     lines.push(line);
   }
 
-  // ─── 4. Прочие (смешанные) ───────────────────────
+  // 🔀 Смешанные
   for (const [, roomConsumers] of otherByRoom) {
     const roomName = roomConsumers[0].roomName;
-    const totalPower = roomConsumers.reduce(
-      (s, c) => s + c.power * c.quantity,
-      0
-    );
+    const totalPower = roomConsumers.reduce((s, c) => s + c.power * c.quantity, 0);
     const voltage = 220;
     const current = calculateCurrent(totalPower, voltage, 0.95);
     const breakerCurrent = selectBreakerRating(current * 1.1);
@@ -337,12 +312,11 @@ export function calculatePanel(
     lines.push(line);
   }
 
-  // ─── 5. Отдельные линии ──────────────────────────
+  // ⚡ Отдельные линии
   for (const c of dedicated) {
     const totalPower = c.power * c.quantity;
     const voltage = c.voltage;
     const pf = c.powerFactor || (c.type === "AIR_CONDITIONER" ? 0.85 : 1.0);
-
     const current = calculateCurrent(totalPower, voltage, pf);
     let breakerCurrent: number;
 
@@ -385,7 +359,7 @@ export function calculatePanel(
     lines.push(line);
   }
 
-  // ─── 6. Итоговый расчёт ──────────────────────────
+  // 🧮 Итоги
   const totalPower = lines.reduce((s, l) => s + l.totalPower, 0);
   const simultaneityFactor = getSimultaneityFactor(lines.length);
   const calculatedPower = totalPower * simultaneityFactor;
@@ -394,17 +368,11 @@ export function calculatePanel(
   const inputCurrent = calculateCurrent(calculatedPower, inputVoltage, 0.95);
   const inputBreakerCurrent = selectBreakerRating(inputCurrent * 1.1);
 
-  // Предупреждения
   if (totalPower > 15000 && networkType === "SINGLE_PHASE") {
-    warnings.push(
-      "⚠️ Мощность превышает 15 кВт. Рекомендуется 3-фазное подключение."
-    );
+    warnings.push("⚠️ Мощность превышает 15 кВт. Рекомендуется 3-фазное подключение.");
   }
-
   if (lines.length > 20) {
-    warnings.push(
-      "⚠️ Более 20 линий — рассмотрите разделение на несколько щитов."
-    );
+    warnings.push("⚠️ Более 20 линий — рассмотрите разделение на несколько щитов.");
   }
 
   return {
@@ -421,3 +389,4 @@ export function calculatePanel(
     warnings,
   };
 }
+

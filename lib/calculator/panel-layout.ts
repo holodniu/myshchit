@@ -42,7 +42,7 @@ export type EnclosureSize = {
 };
 
 // ═══════════════════════════════════════════════════
-// 🏭 СПРАВОЧНИК БРЕНДОВ (slug → display name)
+// 🏭 БРЕНДЫ
 // ═══════════════════════════════════════════════════
 
 export const BRAND_DISPLAY_NAMES: Record<string, string> = {
@@ -73,14 +73,59 @@ const ENCLOSURES: EnclosureSize[] = [
 ];
 
 // ═══════════════════════════════════════════════════
-// 🏗 ПОСТРОЕНИЕ СХЕМЫ ЩИТА
+// 🎯 ПРИОРИТЕТ РАЗМЕЩЕНИЯ В ЩИТЕ (как делают электрики в РФ)
 // ═══════════════════════════════════════════════════
 
 /**
- * Собирает схему щита для ОДНОГО выбранного бренда
- * @param result - результат расчёта
- * @param brandSlug - выбранный бренд ("abb", "iek", "schneider"...)
+ * Возвращает приоритет линии для сортировки в щите.
+ * Меньший номер = раньше в щите.
+ * 
+ * Порядок (по российской практике):
+ * 1. Ввод — всегда первым (обрабатывается отдельно)
+ * 2. Выделенные линии с 10мА УЗО (критичные: бойлер, стиралка, тёплый пол)
+ * 3. Выделенные линии с 30мА УЗО (варочная, духовка, кондёр, холодильник, ЭМ)
+ * 4. Розеточные группы по комнатам (розетки кухня, зал, спальня)
+ * 5. Смешанные
+ * 6. Свет — в самом конце (обычно меньший номинал, менее критичны)
  */
+function getLineDisplayPriority(line: {
+  lineType: string;
+  rcd?: { sensitivity: number } | null | undefined;
+}): number {
+  const { lineType, rcd } = line;
+
+  // Приоритет 2: Выделенные с 10мА (мокрые зоны, критично)
+  if (lineType === "DEDICATED" && rcd?.sensitivity === 10) {
+    return 2;
+  }
+
+  // Приоритет 3: Остальные выделенные (варочная, кондёр, холодильник)
+  if (lineType === "DEDICATED") {
+    return 3;
+  }
+
+  // Приоритет 4: Розетки по комнатам
+  if (lineType === "SOCKETS") {
+    return 4;
+  }
+
+  // Приоритет 5: Смешанные линии
+  if (lineType === "MIXED") {
+    return 5;
+  }
+
+  // Приоритет 6: Свет — в конце
+  if (lineType === "LIGHTING") {
+    return 6;
+  }
+
+  return 7; // прочее
+}
+
+// ═══════════════════════════════════════════════════
+// 🏗 ПОСТРОЕНИЕ СХЕМЫ ЩИТА
+// ═══════════════════════════════════════════════════
+
 export function buildPanelLayout(
   result: CalculationResult,
   brandSlug: string = "abb"
@@ -94,14 +139,14 @@ export function buildPanelLayout(
     MIXED: "#26A69A",
   };
 
-  // 🎯 ОДИН бренд на весь щит — как в реальной жизни
+  // 🎯 ОДИН бренд на весь щит
   const panelBrand = getBrandDisplayName(brandSlug);
 
   // Счётчики для QF/QD
   let qfCounter = 0;
   let qdCounter = 0;
 
-  // 1️⃣ Вводной автомат
+  // 1️⃣ Вводной автомат (всегда первый)
   qfCounter++;
   groups.push({
     id: "input",
@@ -122,24 +167,39 @@ export function buildPanelLayout(
     ],
   });
 
-  // 2️⃣ Линии
-  result.lines.forEach((line, idx) => {
+  // 2️⃣ Сортируем линии по приоритету (как у российских электриков!)
+  const sortedLines = [...result.lines]
+    .map((line, originalIdx) => ({ line, originalIdx }))
+    .sort((a, b) => {
+      const priorityA = getLineDisplayPriority(a.line);
+      const priorityB = getLineDisplayPriority(b.line);
+
+      if (priorityA !== priorityB) {
+        return priorityA - priorityB;
+      }
+
+      // При одинаковом приоритете — сортировка по мощности (большие первыми)
+      return b.line.totalPower - a.line.totalPower;
+    });
+
+  // 3️⃣ Обрабатываем линии в правильном порядке
+  sortedLines.forEach(({ line, originalIdx }) => {
     const color = typeColors[line.lineType];
     const items: PanelItem[] = [];
 
-    // УЗО
+    // УЗО перед автоматом
     if (line.rcd) {
       qdCounter++;
       items.push({
-        id: `rcd-${idx}`,
+        id: `rcd-${originalIdx}`,
         type: "RCD",
         modules: line.rcd.poles,
         color: "#26A69A",
         label: `${line.rcd.current}A`,
         sublabel: `УЗО ${line.rcd.sensitivity}мА`,
-        lineIndex: idx,
+        lineIndex: originalIdx,
         qfLabel: `QD${qdCounter}`,
-        brand: panelBrand, // 🎯 тот же бренд
+        brand: panelBrand,
         sensitivity: line.rcd.sensitivity,
         rcdType: line.rcd.type,
       });
@@ -148,26 +208,27 @@ export function buildPanelLayout(
     // Автомат
     qfCounter++;
     items.push({
-      id: `breaker-${idx}`,
+      id: `breaker-${originalIdx}`,
       type: "BREAKER",
       modules: line.breaker.poles,
       color,
       label: `${line.breaker.characteristic}${line.breaker.current}`,
       sublabel: line.name,
-      lineIndex: idx,
+      lineIndex: originalIdx,
       qfLabel: `QF${qfCounter}`,
-      brand: panelBrand, // 🎯 тот же бренд
+      brand: panelBrand,
       characteristic: line.breaker.characteristic,
     });
 
     groups.push({
-      id: `line-${idx}`,
-      title: `Линия ${idx + 1}: ${line.name}`,
+      id: `line-${originalIdx}`,
+      title: `Линия: ${line.name}`,
       color,
       items,
     });
   });
 
+  // 4️⃣ Итоги
   const totalModules = groups.reduce(
     (sum, g) => sum + g.items.reduce((s, i) => s + i.modules, 0),
     0
@@ -190,17 +251,57 @@ export function buildPanelLayout(
 }
 
 // ═══════════════════════════════════════════════════
-// 📏 РАСПРЕДЕЛЕНИЕ ПО РЕЙКАМ
+// 📏 РАСПРЕДЕЛЕНИЕ ПО РЕЙКАМ (с учётом группировки)
 // ═══════════════════════════════════════════════════
 
+/**
+ * Разбивает модули по DIN-рейкам.
+ * Важно: УЗО+Автомат (пара из одной группы) НЕ разрывается между рейками.
+ */
 export function distributeOnRails(
   items: PanelItem[],
-  modulesPerRail: number
+  modulesPerRail: number,
+  groups?: PanelGroup[]
 ): PanelItem[][] {
   const rails: PanelItem[][] = [[]];
   let currentRail = 0;
   let currentWidth = 0;
 
+  // Если переданы группы — размещаем группами (не разрываем УЗО+автомат)
+  if (groups && groups.length > 0) {
+    for (const group of groups) {
+      const groupWidth = group.items.reduce((s, i) => s + i.modules, 0);
+
+      // Если вся группа не влезает на текущую рейку — начинаем новую
+      if (currentWidth + groupWidth > modulesPerRail && currentWidth > 0) {
+        rails.push([]);
+        currentRail++;
+        currentWidth = 0;
+      }
+
+      // Если группа больше рейки — всё равно добавляем (разобьётся дальше)
+      if (groupWidth > modulesPerRail) {
+        for (const item of group.items) {
+          if (currentWidth + item.modules > modulesPerRail) {
+            rails.push([]);
+            currentRail++;
+            currentWidth = 0;
+          }
+          rails[currentRail].push(item);
+          currentWidth += item.modules;
+        }
+      } else {
+        // Нормальная группа — размещаем целиком
+        for (const item of group.items) {
+          rails[currentRail].push(item);
+          currentWidth += item.modules;
+        }
+      }
+    }
+    return rails;
+  }
+
+  // Fallback: простое размещение по модулям
   for (const item of items) {
     if (currentWidth + item.modules > modulesPerRail) {
       rails.push([]);
@@ -213,4 +314,5 @@ export function distributeOnRails(
 
   return rails;
 }
+
 

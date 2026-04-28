@@ -25,6 +25,7 @@ import {
   buildPanelLayout,
   distributeOnRails,
   type PanelGroup,
+  type PanelItem,
 } from "@/lib/calculator/panel-layout";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,6 @@ export default function PanelVisualization({
   result: CalculationResult;
   brand?: string;
 }) {
-  // Пересчитываем layout при смене бренда
   const layout = useMemo(
     () => buildPanelLayout(result, brand),
     [result, brand]
@@ -45,7 +45,6 @@ export default function PanelVisualization({
 
   const [groups, setGroups] = useState<PanelGroup[]>(layout.groups);
 
-  // Обновляем groups при изменении бренда или result
   useEffect(() => {
     setGroups(layout.groups);
   }, [layout]);
@@ -72,14 +71,51 @@ export default function PanelVisualization({
     }
   };
 
-  const allItems = groups.flatMap((g) => g.items);
+  // 🎯 НОВАЯ ЛОГИКА РАЗМЕЩЕНИЯ:
+  // Рейка 1: Ввод + ВСЕ УЗО (10мА сначала, потом 30мА, потом остальные)
+  // Рейка 2+: Автоматы отсортированные по току (от большего к меньшему)
+  const { inputItems, uzoItems, breakerItems } = useMemo(() => {
+    const input: PanelItem[] = [];
+    const uzos: PanelItem[] = [];
+    const breakers: PanelItem[] = [];
+
+    for (const group of groups) {
+      for (const item of group.items) {
+        if (item.type === "INPUT") {
+          input.push(item);
+        } else if (item.type === "RCD") {
+          uzos.push(item);
+        } else if (item.type === "BREAKER") {
+          breakers.push(item);
+        }
+      }
+    }
+
+    // УЗО: сначала критичные (10мА), потом стандартные (30мА)
+    uzos.sort((a, b) => (a.sensitivity || 99) - (b.sensitivity || 99));
+
+    // Автоматы: от большего тока к меньшему
+    breakers.sort((a, b) => {
+      const extractCurrent = (label: string) => {
+        const match = label.match(/(\d+)/);
+        return match ? parseInt(match[1]) : 0;
+      };
+      return extractCurrent(b.label) - extractCurrent(a.label);
+    });
+
+    return { inputItems: input, uzoItems: uzos, breakerItems: breakers };
+  }, [groups]);
+
+  const orderedItems = [...inputItems, ...uzoItems, ...breakerItems];
   const rails = distributeOnRails(
-    allItems,
+    orderedItems,
     layout.recommendedEnclosure.modulesPerRail
   );
 
-  // Кол-во клемм на шинах = модулей на рейке × 2 (запас)
-  const busbarTerminals = Math.max(16, layout.recommendedEnclosure.modulesPerRail * 2);
+  const busbarTerminals = Math.max(
+    16,
+    layout.recommendedEnclosure.modulesPerRail * 2
+  );
 
   return (
     <div className="space-y-6">
@@ -94,32 +130,29 @@ export default function PanelVisualization({
               </h3>
               <p className="text-sm text-[#787B86]">
                 Корпус: {layout.recommendedEnclosure.name} · Бренд:{" "}
-                <span className="text-[#2962FF] font-semibold">{layout.brand}</span> ·{" "}
-                {layout.totalModules} из {layout.recommendedEnclosure.modules} модулей ·{" "}
+                <span className="text-[#2962FF] font-semibold">
+                  {layout.brand}
+                </span>{" "}
+                · {layout.totalModules} из {layout.recommendedEnclosure.modules}{" "}
+                модулей ·{" "}
                 <span className="text-[#26A69A]">
                   резерв {layout.reserveModules}
                 </span>
+              </p>
+              <p className="text-xs text-[#50535E] mt-1">
+                💡 Рейка 1: ввод + УЗО · Рейка 2+: автоматы по току (от большего к меньшему)
               </p>
             </div>
           </div>
 
           {/* 📦 Корпус щита */}
           <div className="bg-gradient-to-br from-[#eceff1] to-[#cfd8dc] border-4 border-[#90a4ae] rounded-lg p-6 shadow-2xl">
-            {/* Верхние крепёжные винты корпуса */}
             <div className="flex justify-between mb-4">
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner">
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="w-2 h-px bg-[#263238]" />
-                </div>
-              </div>
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
               <div className="text-xs font-mono text-[#455a64] font-bold">
                 {layout.recommendedEnclosure.name}
               </div>
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner">
-                <div className="w-full h-full flex items-center justify-center">
-                  <div className="w-2 h-px bg-[#263238]" />
-                </div>
-              </div>
+              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
             </div>
 
             {/* 🟡 Верхние шины */}
@@ -128,7 +161,7 @@ export default function PanelVisualization({
               <Busbar type="N" label="N" terminals={busbarTerminals} />
             </div>
 
-            {/* ⚡ DIN-рейки с модулями */}
+            {/* ⚡ DIN-рейки */}
             {rails.map((railItems, idx) => (
               <DinRail
                 key={idx}
@@ -144,7 +177,6 @@ export default function PanelVisualization({
               <Busbar type="PE" label="PE" terminals={busbarTerminals} />
             </div>
 
-            {/* Нижние крепёжные винты */}
             <div className="flex justify-between mt-4">
               <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
               <div className="text-xs text-[#546e7a]">
@@ -161,15 +193,15 @@ export default function PanelVisualization({
         </CardContent>
       </Card>
 
-      {/* 📋 Drag-and-drop список групп */}
+      {/* 📋 Drag-and-drop список групп (логическая группировка по линиям) */}
       <Card>
         <CardContent className="p-6">
           <div className="mb-4">
             <h3 className="text-xl font-bold text-[#D1D4DC] mb-1">
-              Состав щита
+              Состав щита (по линиям)
             </h3>
             <p className="text-sm text-[#787B86]">
-              💡 Перетаскивайте линии мышкой, чтобы изменить порядок
+              💡 Перетаскивайте линии мышкой, чтобы изменить порядок в списке
             </p>
           </div>
 
@@ -262,4 +294,5 @@ function SortableGroup({ group }: { group: PanelGroup }) {
     </div>
   );
 }
+
 
