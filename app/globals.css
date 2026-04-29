@@ -32,7 +32,7 @@
   --color-warning: #FF9800;         /* предупреждение */
 
   /* Шрифты — используем переменную из layout.tsx */
-  --font-sans: var(--font-inter), 'Segoe UI', sans-serif;
+  --font-sans: 'Inter Variable', 'Segoe UI', 'Trebuchet MS', sans-serif;
   --font-mono: 'JetBrains Mono', 'Consolas', monospace;
 }
 
@@ -40,7 +40,7 @@
 html, body {
   background-color: var(--color-bg-primary);
   color: var(--color-text-primary);
-  font-family: var(--font-sans);
+  font-family: 'Inter Variable', 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
