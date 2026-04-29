@@ -103,30 +103,32 @@ enum SubscriptionTier {
 
 model Project {
   id          String        @id @default(cuid())
-  name        String        // "Щит для 2-комнатной квартиры"
+  name        String
   description String?       @db.Text
   
-  // Тип сети
   networkType NetworkType   @default(SINGLE_PHASE)
   
-  // Общие параметры
-  totalPower     Float?     // суммарная мощность, Вт
-  calculatedPower Float?    // расчётная с коэффициентом одновременности
-  inputCurrent   Float?     // вводной ток, А
+  totalPower     Float?
+  calculatedPower Float?
+  inputCurrent   Float?
   
-  // Владелец
   userId      String
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  // Содержимое проекта
   rooms       Room[]
-  panels      Panel[]       // обычно 1, но может быть subпанель
+  panels      Panel[]
   
-  // Статус
   status      ProjectStatus @default(DRAFT)
-  isPaid      Boolean       @default(false)  // оплачен ли PDF
+  isPaid      Boolean       @default(false)
   
-  // Метаданные
+  // 🆕 НОВЫЕ ПОЛЯ — настройки проекта
+  protectionLevel  ProtectionLevel @default(BASIC)
+  address         String?
+  clientName      String?
+  clientPhone     String?
+  installerName   String?
+  cableLengthAvg  Float           @default(15)  // средняя длина кабеля в метрах
+  
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   
@@ -470,4 +472,11 @@ enum PaymentStatus {
   SUCCEEDED   // оплачен
   CANCELED    // отменён
   REFUNDED    // возврат
+}
+// 🛡️ Уровень защиты УЗО
+enum ProtectionLevel {
+  MINIMAL   // только мокрые зоны + улица (по ПУЭ)
+  BASIC     // + все розетки (рекомендуется)
+  MAXIMUM   // УЗО на все линии кроме света
+  PARANOID  // УЗО даже на свет
 }

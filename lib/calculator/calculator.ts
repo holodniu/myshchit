@@ -1,4 +1,4 @@
-import { ConsumerType, NetworkType } from "@prisma/client";
+import { ConsumerType, NetworkType, ProtectionLevel } from "@prisma/client";
 
 // ═══════════════════════════════════════════════════
 // 📐 ТИПЫ
@@ -126,21 +126,21 @@ export function calculateCurrent(
 }
 
 /**
- * 🛡️ Подбор УЗО — по рекомендациям практикующих электриков
+ * 🛡️ Подбор УЗО с учётом УРОВНЯ ЗАЩИТЫ
  * 
- * Правила:
- * - 💧 Мокрые зоны (бойлер, стиралка, тёплый пол) → 10мА тип A
- * - 🚗 Электромобиль → 30мА тип B (обязательно ПУЭ)
- * - 🌳 Улица → 30мА тип AC (обязательно ПУЭ)
- * - 💡 Свет → без УЗО
- * - ❄️🧊🍳🔥 Сухие выделенные (кондёр, холодильник, варочная, духовка) → БЕЗ УЗО
- * - 🔌 Розетки и смешанные → 30мА тип AC
+ * MINIMAL  — только мокрые зоны + улица + ЭМ (по ПУЭ минимум)
+ * BASIC    — + розетки, смешанные (рекомендуется)
+ * MAXIMUM  — УЗО на все линии кроме света
+ * PARANOID — УЗО даже на свет
  */
-function selectRcd(line: {
-  lineType: string;
-  consumers: InputConsumer[];
-  calculatedCurrent: number;
-}): CalculatedLine["rcd"] | undefined {
+function selectRcd(
+  line: {
+    lineType: string;
+    consumers: InputConsumer[];
+    calculatedCurrent: number;
+  },
+  protectionLevel: ProtectionLevel = "BASIC"
+): CalculatedLine["rcd"] | undefined {
   const hasEvCharger = line.consumers.some((c) => c.type === "EV_CHARGER");
   const hasWater = line.consumers.some(
     (c) =>
@@ -150,7 +150,9 @@ function selectRcd(line: {
   );
   const hasOutdoor = line.consumers.some((c) => c.type === "OUTDOOR");
 
-  // 🚗 ЭМ — 30мА тип B
+  // ⚡ ПУЭ-обязательные — всегда, независимо от уровня
+
+  // 🚗 ЭМ — всегда 30мА тип B
   if (hasEvCharger) {
     return {
       current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
@@ -160,7 +162,7 @@ function selectRcd(line: {
     };
   }
 
-  // 💧 Мокрые зоны — 10мА
+  // 💧 Мокрые зоны — всегда 10мА
   if (hasWater) {
     return {
       current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
@@ -170,7 +172,7 @@ function selectRcd(line: {
     };
   }
 
-  // 🌳 Улица — 30мА
+  // 🌳 Улица — всегда 30мА по ПУЭ
   if (hasOutdoor) {
     return {
       current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
@@ -180,18 +182,47 @@ function selectRcd(line: {
     };
   }
 
-  // 💡 Свет — без УЗО
+  // 🎯 ДАЛЬШЕ — логика ЗАВИСИТ ОТ УРОВНЯ ЗАЩИТЫ
+
+  // 💡 Свет — УЗО только на уровне PARANOID
   if (line.lineType === "LIGHTING") {
+    if (protectionLevel === "PARANOID") {
+      return {
+        current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
+        sensitivity: 30,
+        type: "AC",
+        poles: 2,
+      };
+    }
     return undefined;
   }
 
-  // 🆕 Сухие выделенные приборы — БЕЗ УЗО
-  // (кондиционер, холодильник, варочная, духовка, мастерская)
+  // 🔌 Розетки — УЗО для BASIC/MAXIMUM/PARANOID, нет на MINIMAL
+  if (line.lineType === "SOCKETS" || line.lineType === "MIXED") {
+    if (protectionLevel === "MINIMAL") return undefined;
+    return {
+      current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
+      sensitivity: 30,
+      type: "AC",
+      poles: 2,
+    };
+  }
+
+  // ❄️ Выделенные «сухие» (кондёр, холодильник, варочная, духовка) 
+  // — УЗО только на MAXIMUM/PARANOID
   if (line.lineType === "DEDICATED") {
+    if (protectionLevel === "MAXIMUM" || protectionLevel === "PARANOID") {
+      return {
+        current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
+        sensitivity: 30,
+        type: "AC",
+        poles: 2,
+      };
+    }
     return undefined;
   }
 
-  // 🔌 Розетки и смешанные — 30мА
+  // По умолчанию — 30мА
   return {
     current: selectNearestRcdCurrent(line.calculatedCurrent * 1.25),
     sensitivity: 30,
@@ -211,7 +242,8 @@ function selectNearestRcdCurrent(current: number): number {
 
 export function calculatePanel(
   consumers: InputConsumer[],
-  networkType: NetworkType
+  networkType: NetworkType,
+  protectionLevel: ProtectionLevel = "BASIC"
 ): CalculationResult {
   const warnings: string[] = [];
   const lines: CalculatedLine[] = [];
@@ -260,7 +292,7 @@ export function calculatePanel(
       breaker: { current: breakerCurrent, characteristic: "B", poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
     };
-    line.rcd = selectRcd(line);
+    line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
   }
 
@@ -284,7 +316,7 @@ export function calculatePanel(
       breaker: { current: breakerCurrent, characteristic: "C", poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
     };
-    line.rcd = selectRcd(line);
+    line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
   }
 
@@ -308,7 +340,7 @@ export function calculatePanel(
       breaker: { current: breakerCurrent, characteristic: "C", poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
     };
-    line.rcd = selectRcd(line);
+    line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
   }
 
@@ -355,7 +387,7 @@ export function calculatePanel(
         maxCurrent: cable.maxCurrent,
       },
     };
-    line.rcd = selectRcd(line);
+    line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
   }
 
@@ -389,4 +421,5 @@ export function calculatePanel(
     warnings,
   };
 }
+
 

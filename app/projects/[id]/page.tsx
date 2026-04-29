@@ -9,8 +9,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Zap, Home, ArrowLeft, Pencil } from "lucide-react";
+import { Zap, Home, ArrowLeft, Pencil, Settings } from "lucide-react";
 import CalculationResultPanel from "./CalculationResult";
+import DownloadPDFButton from "./DownloadPDFButton";
 import {
   calculatePanel,
   type InputConsumer,
@@ -55,7 +56,6 @@ export default async function ProjectPage({
     0
   );
 
-  // Если уже рассчитан — пересчитываем для показа из актуальных данных
   let initialResult: CalculationResult | null = null;
   if (project.panels.length > 0 && totalConsumers > 0) {
     const consumers: InputConsumer[] = project.rooms.flatMap((room) =>
@@ -73,11 +73,17 @@ export default async function ProjectPage({
       }))
     );
     try {
-      initialResult = calculatePanel(consumers, project.networkType);
+      initialResult = calculatePanel(
+        consumers,
+        project.networkType,
+        project.protectionLevel
+      );
     } catch (e) {
       console.error(e);
     }
   }
+
+  const isCalculated = initialResult !== null;
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -92,7 +98,7 @@ export default async function ProjectPage({
             <ArrowLeft className="w-4 h-4" /> К списку проектов
           </Link>
 
-          {/* 🏷️ Заголовок + бейджи + кнопка "Редактировать" */}
+          {/* Заголовок + кнопки */}
           <div className="mb-8 flex items-start justify-between gap-4 flex-wrap">
             <div>
               <h1 className="text-4xl font-bold text-[#D1D4DC] mb-2">
@@ -113,19 +119,34 @@ export default async function ProjectPage({
                 <Badge color="#2962FF">
                   🔌 {totalConsumers} потребителей
                 </Badge>
+                <Badge color="#9C27B0">
+                  🛡️ {getProtectionLabel(project.protectionLevel)}
+                </Badge>
               </div>
             </div>
 
-            <Link
-              href={`/projects/${project.id}/edit`}
-              className="px-4 py-2 bg-[#1E222D] hover:bg-[#2A2E39] text-[#D1D4DC] border border-[#363A45] rounded-md transition flex items-center gap-2"
-            >
-              <Pencil className="w-4 h-4" />
-              Редактировать
-            </Link>
+            <div className="flex gap-2 flex-wrap">
+              {isCalculated && <DownloadPDFButton projectId={project.id} />}
+
+              <Link
+                href={`/projects/${project.id}/settings`}
+                className="px-4 py-2 bg-[#1E222D] hover:bg-[#2A2E39] text-[#D1D4DC] border border-[#363A45] rounded-md transition flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Настройки
+              </Link>
+
+              <Link
+                href={`/projects/${project.id}/edit`}
+                className="px-4 py-2 bg-[#1E222D] hover:bg-[#2A2E39] text-[#D1D4DC] border border-[#363A45] rounded-md transition flex items-center gap-2"
+              >
+                <Pencil className="w-4 h-4" />
+                Редактировать
+              </Link>
+            </div>
           </div>
 
-          {/* 🏠 Комнаты (компактно) */}
+          {/* Комнаты */}
           <div className="mb-8 space-y-3">
             {project.rooms.map((room) => {
               const roomPower = room.consumers.reduce(
@@ -157,7 +178,10 @@ export default async function ProjectPage({
                           <span className="text-[#D1D4DC]">
                             {c.name}
                             {c.quantity > 1 && (
-                              <span className="text-[#787B86]"> × {c.quantity}</span>
+                              <span className="text-[#787B86]">
+                                {" "}
+                                × {c.quantity}
+                              </span>
                             )}
                             {c.dedicatedLine && (
                               <span className="ml-2 text-xs text-[#2962FF]">
@@ -177,7 +201,7 @@ export default async function ProjectPage({
             })}
           </div>
 
-          {/* 🧮 Блок расчёта */}
+          {/* Блок расчёта */}
           <CalculationResultPanel
             projectId={project.id}
             initialResult={initialResult}
@@ -205,4 +229,19 @@ function Badge({
       {children}
     </div>
   );
+}
+
+function getProtectionLabel(level: string): string {
+  switch (level) {
+    case "MINIMAL":
+      return "Минимальная защита";
+    case "BASIC":
+      return "Базовая защита";
+    case "MAXIMUM":
+      return "Максимальная защита";
+    case "PARANOID":
+      return "Параноидальная";
+    default:
+      return "Базовая защита";
+  }
 }

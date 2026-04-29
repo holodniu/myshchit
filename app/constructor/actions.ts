@@ -160,7 +160,12 @@ export async function calculateProject(projectId: string) {
     throw new Error("В проекте нет потребителей. Добавьте их перед расчётом.");
   }
 
-  const result = calculatePanel(inputConsumers, project.networkType);
+  const result = calculatePanel(
+  inputConsumers,
+  project.networkType,
+  project.protectionLevel
+);
+
 
   // Удаляем старые расчёты
   await prisma.panel.deleteMany({
@@ -369,4 +374,54 @@ export async function updateProject(
   revalidatePath("/projects");
 
   return { success: true as const, projectId };
+}
+import type { ProtectionLevel } from "@prisma/client";
+
+// ═══════════════════════════════════════════════════
+// ⚙️ НАСТРОЙКИ ПРОЕКТА
+// ═══════════════════════════════════════════════════
+
+export type ProjectSettings = {
+  protectionLevel: ProtectionLevel;
+  address?: string;
+  clientName?: string;
+  clientPhone?: string;
+  installerName?: string;
+  cableLengthAvg: number;
+};
+
+export async function updateProjectSettings(
+  projectId: string,
+  settings: ProjectSettings
+) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Необходимо войти в систему");
+  const userId = (session.user as any).id;
+
+  const existing = await prisma.project.findUnique({
+    where: { id: projectId },
+    select: { userId: true },
+  });
+  if (!existing || existing.userId !== userId) {
+    throw new Error("Проект не найден или нет доступа");
+  }
+
+  await prisma.project.update({
+    where: { id: projectId },
+    data: {
+      protectionLevel: settings.protectionLevel,
+      address: settings.address || null,
+      clientName: settings.clientName || null,
+      clientPhone: settings.clientPhone || null,
+      installerName: settings.installerName || null,
+      cableLengthAvg: settings.cableLengthAvg,
+      // Сбрасываем расчёт, т.к. уровень УЗО мог измениться
+      status: "DRAFT",
+    },
+  });
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/settings`);
+
+  return { success: true as const };
 }
