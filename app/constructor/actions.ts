@@ -3,7 +3,6 @@
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
 import { NetworkType, ConsumerType } from "@prisma/client";
 import { calculatePanel, type InputConsumer, type CalculationResult } from "@/lib/calculator/calculator";
 
@@ -39,7 +38,7 @@ export async function createProject(input: CreateProjectInput) {
     throw new Error("Необходимо войти в систему");
   }
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   if (!userId) {
     throw new Error("Сессия повреждена. Выйдите и войдите заново.");
@@ -92,7 +91,7 @@ export async function deleteProject(projectId: string) {
     throw new Error("Необходимо войти в систему");
   }
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   // Проверяем, что проект принадлежит пользователю
   const project = await prisma.project.findUnique({
@@ -122,7 +121,7 @@ export async function calculateProject(projectId: string) {
     throw new Error("Необходимо войти в систему");
   }
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   const project = await prisma.project.findUnique({
     where: { id: projectId },
@@ -313,7 +312,7 @@ export async function updateProject(
     throw new Error("Необходимо войти в систему");
   }
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   // Проверяем, что проект принадлежит пользователю
   const existing = await prisma.project.findUnique({
@@ -396,7 +395,7 @@ export async function updateProjectSettings(
 ) {
   const session = await auth();
   if (!session?.user) throw new Error("Необходимо войти в систему");
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   const existing = await prisma.project.findUnique({
     where: { id: projectId },

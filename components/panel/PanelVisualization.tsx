@@ -158,7 +158,7 @@ export default function PanelVisualization({
             {rails.map((railItems, idx) => (
               <DinRail
                 key={idx}
-                items={railItems as any}
+                items={railItems as PanelItem[]}
                 railIndex={idx}
                 modulesPerRail={layout.recommendedEnclosure.modulesPerRail}
               />

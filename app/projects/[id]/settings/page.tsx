@@ -16,7 +16,7 @@ export default async function SettingsPage({
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const userId = (session.user as any).id;
+  const userId = session.user.id;
 
   const project = await prisma.project.findUnique({
     where: { id },

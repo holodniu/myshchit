@@ -7,7 +7,6 @@ import {
   Phone,
   ClipboardList,
   Zap,
-  User,
 } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";

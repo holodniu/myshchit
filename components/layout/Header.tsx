@@ -5,7 +5,7 @@ import { User, Shield } from "lucide-react";
 
 export default async function Header() {
   const session = await auth();
-  const userRole = (session?.user as any)?.role;
+  const userRole = session?.user?.role;
   const isAdmin = userRole === "ADMIN";
 
   return (

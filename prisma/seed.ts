@@ -34,7 +34,7 @@ async function main() {
     },
   });
 
-  const legrand = await prisma.brand.create({
+  await prisma.brand.create({
     data: {
       name: "Legrand",
       slug: "legrand",
@@ -62,7 +62,7 @@ async function main() {
     },
   });
 
-  const dekraft = await prisma.brand.create({
+  await prisma.brand.create({
     data: {
       name: "DEKraft",
       slug: "dekraft",

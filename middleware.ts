@@ -8,7 +8,7 @@ const ADMIN_ROUTES = ["/admin"];
 export default auth((req) => {
   const { nextUrl } = req;
   const isLoggedIn = !!req.auth;
-  const userRole = (req.auth?.user as any)?.role;
+  const userRole = req.auth?.user?.role;
 
   const isProtected = PROTECTED_ROUTES.some((p) =>
     nextUrl.pathname.startsWith(p)

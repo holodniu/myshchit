@@ -3,7 +3,6 @@
 import { useState, useTransition } from "react";
 import { updateBrand } from "@/app/admin/actions";
 import { PriceClass } from "@prisma/client";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

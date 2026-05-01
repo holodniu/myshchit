@@ -298,7 +298,7 @@ export default function ConstructorForm({
       </Card>
 
       <div className="space-y-4">
-        {rooms.map((room, roomIdx) => (
+        {rooms.map((room) => (
           <Card key={room.id}>
             <CardHeader>
               <div className="flex items-center justify-between gap-4">

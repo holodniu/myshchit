@@ -15,7 +15,7 @@ import DeleteProjectButton from "./DeleteProjectButton";
 
 export default async function ProjectsPage() {
   const session = await auth();
-  const userId = (session?.user as any)?.id;
+  const userId = session?.user?.id;
 
   const projects = userId
     ? await prisma.project.findMany({

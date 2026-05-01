@@ -14,7 +14,7 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
-  const userRole = (session?.user as any)?.role;
+  const userRole = session?.user?.role;
 
   if (!session?.user || userRole !== "ADMIN") {
     redirect("/projects");

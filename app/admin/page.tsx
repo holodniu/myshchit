@@ -13,6 +13,8 @@ import {
 } from "lucide-react";
 
 export default async function AdminDashboard() {
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
   // Параллельно загружаем статистику
   const [
     usersCount,
@@ -33,14 +35,14 @@ export default async function AdminDashboard() {
     prisma.project.count({
       where: {
         createdAt: {
-          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          gte: weekAgo,
         },
       },
     }),
     prisma.user.count({
       where: {
         createdAt: {
-          gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          gte: weekAgo,
         },
       },
     }),
