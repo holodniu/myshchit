@@ -17,6 +17,7 @@ export type CreateProjectInput = {
   rooms: {
     name: string;
     area?: number;
+    floor?: number;
     consumers: {
       type: ConsumerType;
       name: string;
@@ -61,6 +62,7 @@ export async function createProject(input: CreateProjectInput) {
         create: input.rooms.map((room, roomIdx) => ({
           name: room.name,
           area: room.area,
+          floor: room.floor ?? 1,
           order: roomIdx,
           consumers: {
             create: room.consumers.map((consumer) => ({
@@ -78,6 +80,62 @@ export async function createProject(input: CreateProjectInput) {
 
   revalidatePath("/projects");
   return { success: true as const, projectId: project.id };
+}
+
+// ═══════════════════════════════════════════════════
+// 📋 ДУБЛИРОВАНИЕ ПРОЕКТА
+// ═══════════════════════════════════════════════════
+
+export async function duplicateProject(projectId: string) {
+  const session = await auth();
+  if (!session?.user) throw new Error("Необходимо войти в систему");
+  const userId = session.user.id;
+
+  const original = await prisma.project.findUnique({
+    where: { id: projectId },
+    include: {
+      rooms: {
+        orderBy: { order: "asc" },
+        include: { consumers: true },
+      },
+    },
+  });
+
+  if (!original) throw new Error("Проект не найден");
+  if (original.userId !== userId) throw new Error("Нет доступа к проекту");
+
+  const newProject = await prisma.project.create({
+    data: {
+      name: `Копия — ${original.name}`,
+      description: original.description,
+      networkType: original.networkType,
+      totalPower: original.totalPower,
+      protectionLevel: original.protectionLevel,
+      userId,
+      status: "DRAFT",
+      rooms: {
+        create: original.rooms.map((room, roomIdx) => ({
+          name: room.name,
+          area: room.area,
+          order: roomIdx,
+          consumers: {
+            create: room.consumers.map((consumer) => ({
+              type: consumer.type,
+              name: consumer.name,
+              power: consumer.power,
+              quantity: consumer.quantity,
+              voltage: consumer.voltage,
+              powerFactor: consumer.powerFactor,
+              dedicatedLine: consumer.dedicatedLine,
+            })),
+          },
+        })),
+      },
+    },
+  });
+
+  revalidatePath("/projects");
+  return { success: true as const, projectId: newProject.id };
 }
 
 // ═══════════════════════════════════════════════════
@@ -353,6 +411,7 @@ export async function updateProject(
           create: input.rooms.map((room, roomIdx) => ({
             name: room.name,
             area: room.area,
+            floor: room.floor ?? 1,
             order: roomIdx,
             consumers: {
               create: room.consumers.map((consumer) => ({

@@ -1,7 +1,15 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { Settings, Info } from "lucide-react";
+import { Settings } from "lucide-react";
+import { getSettings } from "./data";
+import SettingsForm from "./SettingsForm";
 
-export default function AdminSettingsPage() {
+export const metadata = {
+  title: "Настройки системы — Админка",
+};
+
+export default async function AdminSettingsPage() {
+  const settings = await getSettings();
+
   return (
     <div className="space-y-6">
       <div>
@@ -12,17 +20,9 @@ export default function AdminSettingsPage() {
         <p className="text-[#787B86] mt-1">Глобальные параметры приложения</p>
       </div>
 
-      <Card className="bg-[#2962FF]/10 border-[#2962FF]/30">
-        <CardContent className="p-8 text-center">
-          <Info className="w-16 h-16 mx-auto mb-4 text-[#2962FF]" />
-          <h3 className="text-xl font-bold text-[#D1D4DC] mb-2">
-            🚧 В разработке
-          </h3>
-          <p className="text-[#787B86] mb-4">
-            Здесь появятся настройки: коэффициенты одновременности, дефолтные
-            параметры, SEO-мета, email-шаблоны и другие системные параметры.
-          </p>
-          <p className="text-xs text-[#50535E]">Планируется в Этапе 8</p>
+      <Card>
+        <CardContent className="p-6">
+          <SettingsForm initialSettings={settings} />
         </CardContent>
       </Card>
     </div>

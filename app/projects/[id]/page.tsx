@@ -146,59 +146,96 @@ export default async function ProjectPage({
             </div>
           </div>
 
-          {/* Комнаты */}
-          <div className="mb-8 space-y-3">
-            {project.rooms.map((room) => {
-              const roomPower = room.consumers.reduce(
-                (s, c) => s + c.power * c.quantity,
-                0
-              );
-              return (
-                <Card key={room.id}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{room.name}</CardTitle>
-                      <div className="flex gap-3 text-sm">
-                        {room.area && (
-                          <span className="text-[#787B86]">{room.area} м²</span>
-                        )}
-                        <span className="text-[#FF9800]">
-                          {(roomPower / 1000).toFixed(2)} кВт
-                        </span>
-                      </div>
+          {/* Комнаты — группировка по этажам */}
+          <div className="mb-8 space-y-6">
+            {Array.from(
+              new Map(project.rooms.map((r) => [r.floor, r])).entries()
+            )
+              .sort(([a], [b]) => (a as number) - (b as number))
+              .map(([floor]) => {
+                const floorRooms = project.rooms.filter(
+                  (r) => r.floor === floor
+                );
+                const floorPower = floorRooms.reduce(
+                  (sum, room) =>
+                    sum +
+                    room.consumers.reduce((s, c) => s + c.power * c.quantity, 0),
+                  0
+                );
+                return (
+                  <div key={floor}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <h3 className="text-lg font-bold text-[#D1D4DC]">
+                        🏢 {floor}-й этаж
+                      </h3>
+                      <div className="flex-1 h-px bg-[#363A45]" />
+                      <span className="text-sm text-[#FF9800]">
+                        {(floorPower / 1000).toFixed(2)} кВт
+                      </span>
+                      <span className="text-xs text-[#787B86]">
+                        {floorRooms.length} комнат
+                      </span>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-1 text-sm">
-                      {room.consumers.map((c) => (
-                        <div
-                          key={c.id}
-                          className="flex items-center justify-between py-1"
-                        >
-                          <span className="text-[#D1D4DC]">
-                            {c.name}
-                            {c.quantity > 1 && (
-                              <span className="text-[#787B86]">
-                                {" "}
-                                × {c.quantity}
-                              </span>
-                            )}
-                            {c.dedicatedLine && (
-                              <span className="ml-2 text-xs text-[#2962FF]">
-                                ● отдельная линия
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-[#787B86]">
-                            {c.power * c.quantity} Вт
-                          </span>
-                        </div>
-                      ))}
+                    <div className="space-y-3">
+                      {floorRooms.map((room) => {
+                        const roomPower = room.consumers.reduce(
+                          (s, c) => s + c.power * c.quantity,
+                          0
+                        );
+                        return (
+                          <Card key={room.id}>
+                            <CardHeader className="pb-3">
+                              <div className="flex items-center justify-between">
+                                <CardTitle className="text-lg">
+                                  {room.name}
+                                </CardTitle>
+                                <div className="flex gap-3 text-sm">
+                                  {room.area && (
+                                    <span className="text-[#787B86]">
+                                      {room.area} м²
+                                    </span>
+                                  )}
+                                  <span className="text-[#FF9800]">
+                                    {(roomPower / 1000).toFixed(2)} кВт
+                                  </span>
+                                </div>
+                              </div>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-1 text-sm">
+                                {room.consumers.map((c) => (
+                                  <div
+                                    key={c.id}
+                                    className="flex items-center justify-between py-1"
+                                  >
+                                    <span className="text-[#D1D4DC]">
+                                      {c.name}
+                                      {c.quantity > 1 && (
+                                        <span className="text-[#787B86]">
+                                          {" "}
+                                          × {c.quantity}
+                                        </span>
+                                      )}
+                                      {c.dedicatedLine && (
+                                        <span className="ml-2 text-xs text-[#2962FF]">
+                                          ● отдельная линия
+                                        </span>
+                                      )}
+                                    </span>
+                                    <span className="text-[#787B86]">
+                                      {c.power * c.quantity} Вт
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                  </div>
+                );
+              })}
           </div>
 
           {/* Блок расчёта */}

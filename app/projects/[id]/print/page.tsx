@@ -9,6 +9,7 @@ import { fetchPriceEstimate } from "@/app/constructor/actions";
 import { getBrandDisplayName } from "@/lib/calculator/panel-layout";
 import PrintTrigger from "./PrintTrigger";
 
+
 const CONSUMER_LABELS: Record<string, string> = {
   LIGHT: "Свет",
   SOCKET: "Розетки",
@@ -23,6 +24,9 @@ const CONSUMER_LABELS: Record<string, string> = {
   WARM_FLOOR: "Тёплый пол",
   WORKSHOP: "Мастерская",
   OUTDOOR: "Уличная линия",
+  SMART_RELAY: "Реле УД",
+  SMART_DIMMER: "Диммер",
+  SMART_GATEWAY: "Шлюз УД",
   OTHER: "Прочее",
 };
 
@@ -338,6 +342,46 @@ export default async function PrintProjectPage({
           margin: 10px 0;
           font-size: 10pt;
         }
+        .print-root .sticker-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+          margin: 10px 0;
+        }
+        .print-root .sticker {
+          border: 1px dashed #90A4AE;
+          padding: 6px 10px;
+          background: #FAFAFA;
+          font-size: 9pt;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          min-height: 36px;
+        }
+        .print-root .sticker-label {
+          font-weight: bold;
+          color: #2962FF;
+          font-family: monospace;
+          font-size: 10pt;
+        }
+        .print-root .sticker-name {
+          color: #37474F;
+          flex: 1;
+          margin: 0 8px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .print-root .sticker-detail {
+          color: #607D8B;
+          font-size: 8pt;
+        }
+        @media print {
+          .print-root .sticker {
+            border: 1px solid #B0BEC5;
+            background: white;
+          }
+        }
       `}</style>
 
 
@@ -536,6 +580,21 @@ export default async function PrintProjectPage({
             </tr>
           </tbody>
         </table>
+
+        {/* 🏷️ Наклейки для щита */}
+        <h2 className="page-break">🏷️ Наклейки для автоматов</h2>
+        <p style={{ fontSize: "9pt", color: "#607D8B", marginBottom: 10 }}>
+          Вырежьте и наклейте на соответствующие модули в щите. Рекомендуемый размер: 50×20 мм.
+        </p>
+        <div className="sticker-grid">
+          {allModules.map((mod, idx) => (
+            <div key={idx} className="sticker avoid-break">
+              <span className="sticker-label">{mod.qf}</span>
+              <span className="sticker-name">{mod.purpose}</span>
+              <span className="sticker-detail">{mod.rating}</span>
+            </div>
+          ))}
+        </div>
 
         {/* Дисклеймер */}
         <div className="disclaimer avoid-break">

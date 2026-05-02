@@ -1,0 +1,32 @@
+-- CreateTable
+CREATE TABLE "site_settings" (
+    "id" TEXT NOT NULL,
+    "lightingDemandFactor" DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+    "socketDemandFactor" DOUBLE PRECISION NOT NULL DEFAULT 0.3,
+    "dedicatedDemandFactor" DOUBLE PRECISION NOT NULL DEFAULT 1.0,
+    "mixedDemandFactor" DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+    "defaultProtectionLevel" "ProtectionLevel" NOT NULL DEFAULT 'BASIC',
+    "defaultNetworkType" "NetworkType" NOT NULL DEFAULT 'SINGLE_PHASE',
+    "defaultCableLength" DOUBLE PRECISION NOT NULL DEFAULT 15,
+    "defaultBrandSlug" TEXT NOT NULL DEFAULT 'abb',
+    "pdfPriceRub" DOUBLE PRECISION NOT NULL DEFAULT 399,
+    "subscriptionPriceRub" DOUBLE PRECISION NOT NULL DEFAULT 990,
+    "siteTitle" TEXT NOT NULL DEFAULT 'Мой Щит — Конструктор электрощитов',
+    "siteDescription" TEXT NOT NULL DEFAULT 'Онлайн-расчёт электрощита для дома и квартиры. Подбор автоматов, УЗО, кабелей.',
+    "siteKeywords" TEXT NOT NULL DEFAULT 'электрощит, автоматы, УЗО, расчёт щита, электрика',
+    "emailFrom" TEXT NOT NULL DEFAULT 'noreply@myshchit.ru',
+    "emailWelcomeSubject" TEXT NOT NULL DEFAULT 'Добро пожаловать в Мой Щит!',
+    "emailWelcomeBody" TEXT NOT NULL DEFAULT 'Здравствуйте! Спасибо за регистрацию в сервисе Мой Щит.',
+    "emailPaymentSubject" TEXT NOT NULL DEFAULT 'Оплата прошла успешно',
+    "emailPaymentBody" TEXT NOT NULL DEFAULT 'Спасибо за оплату! Ваш проект доступен в личном кабинете.',
+    "contactEmail" TEXT,
+    "contactPhone" TEXT,
+    "contactTelegram" TEXT,
+    "registrationEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "paymentsEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "maintenanceMode" BOOLEAN NOT NULL DEFAULT false,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "updatedById" TEXT,
+
+    CONSTRAINT "site_settings_pkey" PRIMARY KEY ("id")
+);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -19,18 +19,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-import DinRail from "./DinRail";
-import Busbar from "./Busbar";
 import PanelSpecification from "./PanelSpecification";
 import {
   buildPanelLayout,
-  distributeOnRails,
   type PanelGroup,
-  type PanelItem,
 } from "@/lib/calculator/panel-layout";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 import { Card, CardContent } from "@/components/ui/card";
-import { Package, GripVertical } from "lucide-react";
+import { GripVertical, List } from "lucide-react";
 
 export default function PanelVisualization({
   result,
@@ -39,10 +35,7 @@ export default function PanelVisualization({
   result: CalculationResult;
   brand?: string;
 }) {
-  const layout = useMemo(
-    () => buildPanelLayout(result, brand),
-    [result, brand]
-  );
+  const layout = buildPanelLayout(result, brand);
 
   const [groups, setGroups] = useState<PanelGroup[]>(layout.groups);
 
@@ -72,124 +65,35 @@ export default function PanelVisualization({
     }
   };
 
-  const { inputItems, uzoItems, breakerItems } = useMemo(() => {
-    const input: PanelItem[] = [];
-    const uzos: PanelItem[] = [];
-    const breakers: PanelItem[] = [];
-
-    for (const group of groups) {
-      for (const item of group.items) {
-        if (item.type === "INPUT") {
-          input.push(item);
-        } else if (item.type === "RCD") {
-          uzos.push(item);
-        } else if (item.type === "BREAKER") {
-          breakers.push(item);
-        }
-      }
-    }
-
-    uzos.sort((a, b) => (a.sensitivity || 99) - (b.sensitivity || 99));
-
-    breakers.sort((a, b) => {
-      const extractCurrent = (label: string) => {
-        const match = label.match(/(\d+)/);
-        return match ? parseInt(match[1]) : 0;
-      };
-      return extractCurrent(b.label) - extractCurrent(a.label);
-    });
-
-    return { inputItems: input, uzoItems: uzos, breakerItems: breakers };
-  }, [groups]);
-
-  const orderedItems = [...inputItems, ...uzoItems, ...breakerItems];
-  const rails = distributeOnRails(
-    orderedItems,
-    layout.recommendedEnclosure.modulesPerRail
-  );
-
-  const busbarTerminals = Math.max(
-    16,
-    layout.recommendedEnclosure.modulesPerRail * 2
-  );
-
   return (
     <div className="space-y-6">
-      {/* 🏗 Визуализация щита */}
+      {/* 📊 Инфо о щите */}
       <Card>
         <CardContent className="p-6">
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-            <div>
-              <h3 className="text-xl font-bold text-[#D1D4DC] flex items-center gap-2">
-                <Package className="w-5 h-5" />
-                Схема щита
-              </h3>
-              <p className="text-sm text-[#787B86]">
-                Корпус: {layout.recommendedEnclosure.name} · Бренд:{" "}
-                <span className="text-[#2962FF] font-semibold">
-                  {layout.brand}
-                </span>{" "}
-                · {layout.totalModules} из {layout.recommendedEnclosure.modules}{" "}
-                модулей ·{" "}
-                <span className="text-[#26A69A]">
-                  резерв {layout.reserveModules}
-                </span>
-              </p>
-              <p className="text-xs text-[#50535E] mt-1">
-                💡 Описание каждого модуля — в таблице спецификации ниже
-              </p>
-            </div>
+          <div className="flex items-center gap-3 mb-2">
+            <List className="w-5 h-5 text-[#2962FF]" />
+            <h3 className="text-xl font-bold text-[#D1D4DC]">
+              Состав щита
+            </h3>
           </div>
-
-          <div className="bg-gradient-to-br from-[#eceff1] to-[#cfd8dc] border-4 border-[#90a4ae] rounded-lg p-6 shadow-2xl">
-            <div className="flex justify-between mb-4">
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
-              <div className="text-xs font-mono text-[#455a64] font-bold">
-                {layout.recommendedEnclosure.name}
-              </div>
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
-            </div>
-
-            <div className="mb-5 space-y-2">
-              <Busbar type="PE" label="PE" terminals={busbarTerminals} />
-              <Busbar type="N" label="N" terminals={busbarTerminals} />
-            </div>
-
-            {rails.map((railItems, idx) => (
-              <DinRail
-                key={idx}
-                items={railItems as PanelItem[]}
-                railIndex={idx}
-                modulesPerRail={layout.recommendedEnclosure.modulesPerRail}
-              />
-            ))}
-
-            <div className="mt-5 space-y-2">
-              <Busbar type="N" label="N" terminals={busbarTerminals} />
-              <Busbar type="PE" label="PE" terminals={busbarTerminals} />
-            </div>
-
-            <div className="flex justify-between mt-4">
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
-              <div className="text-xs text-[#546e7a]">
-                🛡️ МОЙ ЩИТ · Автоматический расчёт
-              </div>
-              <div className="w-4 h-4 rounded-full bg-gradient-to-br from-[#b0bec5] to-[#546e7a] border border-[#263238] shadow-inner" />
-            </div>
-          </div>
-
-          <div className="mt-4 text-xs text-[#787B86] text-center">
-            💡 Все модули бренда{" "}
-            <span className="text-[#2962FF] font-semibold">{layout.brand}</span>
-            {" · "}Расшифровка позиций — в таблице ниже
-          </div>
+          <p className="text-sm text-[#787B86]">
+            Корпус: {layout.recommendedEnclosure.name} · Бренд:{" "}
+            <span className="text-[#2962FF] font-semibold">
+              {layout.brand}
+            </span>{" "}
+            · {layout.totalModules} из {layout.recommendedEnclosure.modules}{" "}
+            модулей ·{" "}
+            <span className="text-[#26A69A]">
+              резерв {layout.reserveModules}
+            </span>
+          </p>
         </CardContent>
       </Card>
 
-      {/* 📋 Спецификация (новое!) */}
+      {/* 📋 Спецификация */}
       <PanelSpecification groups={groups} />
 
-      {/* Drag-and-drop список */}
+      {/* 📋 Состав щита (drag-and-drop список) */}
       <Card>
         <CardContent className="p-6">
           <div className="mb-4">
@@ -290,6 +194,3 @@ function SortableGroup({ group }: { group: PanelGroup }) {
     </div>
   );
 }
-
-
-

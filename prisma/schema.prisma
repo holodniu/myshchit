@@ -157,6 +157,9 @@ model Room {
   name        String      // "Кухня", "Спальня"
   area        Float?      // площадь м²
   
+  // 🆕 Этаж (для многоэтажных проектов)
+  floor       Int         @default(1)
+  
   // Порядок в списке
   order       Int         @default(0)
   
@@ -171,6 +174,7 @@ model Room {
   updatedAt   DateTime    @updatedAt
   
   @@index([projectId])
+  @@index([projectId, floor])
   @@map("rooms")
 }
 
@@ -222,6 +226,9 @@ enum ConsumerType {
   WARM_FLOOR       // 🏠 тёплый пол
   WORKSHOP         // 🛠️ мастерская
   OUTDOOR          // 🌳 уличные линии
+  SMART_RELAY      // 🤖 реле умного дома
+  SMART_DIMMER     // 🤖 диммер
+  SMART_GATEWAY    // 🤖 шлюз/контроллер
   OTHER            // прочее
 }
 
@@ -479,4 +486,55 @@ enum ProtectionLevel {
   BASIC     // + все розетки (рекомендуется)
   MAXIMUM   // УЗО на все линии кроме света
   PARANOID  // УЗО даже на свет
+}
+
+// ═══════════════════════════════════════════════════
+// ⚙️ СИСТЕМНЫЕ НАСТРОЙКИ
+// ═══════════════════════════════════════════════════
+
+model SiteSettings {
+  id        String   @id @default(cuid())
+  
+  // Коэффициенты одновременности
+  lightingDemandFactor    Float @default(0.7)   // свет
+  socketDemandFactor      Float @default(0.3)   // розетки
+  dedicatedDemandFactor   Float @default(1.0)   // отдельные линии
+  mixedDemandFactor       Float @default(0.5)   // смешанные
+  
+  // Дефолтные параметры расчёта
+  defaultProtectionLevel  ProtectionLevel @default(BASIC)
+  defaultNetworkType      NetworkType     @default(SINGLE_PHASE)
+  defaultCableLength      Float           @default(15)  // средняя длина кабеля, м
+  defaultBrandSlug        String          @default("abb")
+  
+  // Системные параметры
+  pdfPriceRub             Float @default(399)
+  subscriptionPriceRub    Float @default(990)
+  
+  // SEO
+  siteTitle               String @default("Мой Щит — Конструктор электрощитов")
+  siteDescription         String @default("Онлайн-расчёт электрощита для дома и квартиры. Подбор автоматов, УЗО, кабелей.")
+  siteKeywords            String @default("электрощит, автоматы, УЗО, расчёт щита, электрика")
+  
+  // Email
+  emailFrom               String @default("noreply@myshchit.ru")
+  emailWelcomeSubject     String @default("Добро пожаловать в Мой Щит!")
+  emailWelcomeBody        String @default("Здравствуйте! Спасибо за регистрацию в сервисе Мой Щит.") @db.Text
+  emailPaymentSubject     String @default("Оплата прошла успешно")
+  emailPaymentBody        String @default("Спасибо за оплату! Ваш проект доступен в личном кабинете.") @db.Text
+  
+  // Контакты
+  contactEmail            String?
+  contactPhone            String?
+  contactTelegram         String?
+  
+  // Переключатели
+  registrationEnabled     Boolean @default(true)
+  paymentsEnabled         Boolean @default(true)
+  maintenanceMode         Boolean @default(false)
+  
+  updatedAt               DateTime @updatedAt
+  updatedById             String?
+  
+  @@map("site_settings")
 }

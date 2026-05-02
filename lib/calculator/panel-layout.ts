@@ -17,6 +17,7 @@ export type PanelItem = {
   characteristic?: "B" | "C" | "D";
   sensitivity?: number;
   rcdType?: "AC" | "A" | "B";
+  phase?: string; // 🆕 L1/L2/L3 для однофазных линий в 3-фазной сети
 };
 
 export type PanelGroup = {
@@ -202,6 +203,7 @@ export function buildPanelLayout(
         brand: panelBrand,
         sensitivity: line.rcd.sensitivity,
         rcdType: line.rcd.type,
+        phase: line.phase || undefined,
       });
     }
 
@@ -218,6 +220,7 @@ export function buildPanelLayout(
       qfLabel: `QF${qfCounter}`,
       brand: panelBrand,
       characteristic: line.breaker.characteristic,
+      phase: line.phase || undefined,
     });
 
     groups.push({

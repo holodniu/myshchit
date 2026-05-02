@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import { Plus, Zap, Home, Calendar } from "lucide-react";
 import DeleteProjectButton from "./DeleteProjectButton";
+import DuplicateProjectButton from "./DuplicateProjectButton";
 
 export default async function ProjectsPage() {
   const session = await auth();
@@ -85,7 +86,10 @@ export default async function ProjectsPage() {
                           {project.name}
                         </Link>
                       </CardTitle>
-                      <DeleteProjectButton projectId={project.id} />
+                      <div className="flex items-center gap-1">
+                        <DuplicateProjectButton projectId={project.id} />
+                        <DeleteProjectButton projectId={project.id} />
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">

@@ -17,6 +17,10 @@ export type InputConsumer = {
   roomName: string;
 };
 
+export type Phase = "L1" | "L2" | "L3" | null;
+
+export type BreakerCharacteristic = "B" | "C" | "D";
+
 export type CalculatedLine = {
   name: string;
   lineType: "LIGHTING" | "SOCKETS" | "DEDICATED" | "MIXED";
@@ -27,7 +31,7 @@ export type CalculatedLine = {
   voltage: number;
   breaker: {
     current: number;
-    characteristic: "B" | "C" | "D";
+    characteristic: BreakerCharacteristic;
     poles: number;
   };
   rcd?: {
@@ -41,6 +45,16 @@ export type CalculatedLine = {
     cores: number;
     maxCurrent: number;
   };
+  phase: Phase; // 🆕 фаза для однофазных линий в 3-фазной сети
+  characteristicReason?: string; // 🆕 почему выбрана именно эта кривая
+  inrushCurrent?: number; // 🆕 пусковой ток (для моторных нагрузок)
+};
+
+export type PhaseBalance = {
+  L1: { power: number; current: number; lines: number };
+  L2: { power: number; current: number; lines: number };
+  L3: { power: number; current: number; lines: number };
+  imbalance: number; // максимальный разбаланс в %
 };
 
 export type CalculationResult = {
@@ -55,6 +69,7 @@ export type CalculationResult = {
   };
   lines: CalculatedLine[];
   warnings: string[];
+  phaseBalance?: PhaseBalance; // 🆕 баланс фаз (только для 3-фазной сети)
 };
 
 // ═══════════════════════════════════════════════════
@@ -82,6 +97,9 @@ const ALWAYS_DEDICATED: ConsumerType[] = [
   "WASHING_MACHINE",
   "REFRIGERATOR",
   "WARM_FLOOR",
+  "SMART_RELAY",
+  "SMART_DIMMER",
+  "SMART_GATEWAY",
 ];
 
 function getSimultaneityFactor(linesCount: number): number {
@@ -89,6 +107,65 @@ function getSimultaneityFactor(linesCount: number): number {
   if (linesCount <= 5) return 0.8;
   if (linesCount <= 9) return 0.7;
   return 0.6;
+}
+
+/**
+ * 🎯 Выбор кривой срабатывания автомата (B/C/D)
+ * с пояснением для пользователя.
+ */
+function selectCharacteristic(
+  lineType: CalculatedLine["lineType"],
+  consumers: InputConsumer[]
+): { characteristic: BreakerCharacteristic; reason: string } {
+  // Свет — нет пусковых токов
+  if (lineType === "LIGHTING") {
+    return { characteristic: "B", reason: "Освещение: нет пусковых токов, чувствительная защита" };
+  }
+
+  // Проверяем типы потребителей на наличие моторов/компрессоров (пусковые токи 5-10×)
+  const hasMotor = consumers.some((c) =>
+    c.type === "AIR_CONDITIONER" ||
+    c.type === "REFRIGERATOR" ||
+    c.type === "WASHING_MACHINE"
+  );
+  const hasHeating = consumers.some((c) =>
+    c.type === "COOKTOP" ||
+    c.type === "OVEN" ||
+    c.type === "WATER_HEATER" ||
+    c.type === "WARM_FLOOR" ||
+    c.type === "ELECTRIC_BOILER"
+  );
+  const hasEvCharger = consumers.some((c) => c.type === "EV_CHARGER");
+  const hasWorkshop = consumers.some((c) => c.type === "WORKSHOP");
+
+  if (hasMotor) {
+    return { characteristic: "D", reason: "Моторная нагрузка: компрессор/насос с высокими пусковыми токами" };
+  }
+
+  if (hasWorkshop) {
+    return { characteristic: "D", reason: "Мастерская: электроинструмент с пусковыми токами" };
+  }
+
+  const hasSmartHome = consumers.some((c) =>
+    c.type === "SMART_RELAY" ||
+    c.type === "SMART_DIMMER" ||
+    c.type === "SMART_GATEWAY"
+  );
+
+  if (hasSmartHome) {
+    return { characteristic: "C", reason: "Электроника умного дома: стабильный ток без пусковых бросков" };
+  }
+
+  if (hasEvCharger) {
+    return { characteristic: "C", reason: "Зарядка ЭМ: стабильный ток без пусковых бросков" };
+  }
+
+  if (hasHeating) {
+    return { characteristic: "C", reason: "Нагревательная нагрузка: высокий ток без пусковых бросков" };
+  }
+
+  // По умолчанию — C (универсальная)
+  return { characteristic: "C", reason: "Универсальная кривая: типичные бытовые нагрузки" };
 }
 
 // ═══════════════════════════════════════════════════
@@ -237,6 +314,122 @@ function selectNearestRcdCurrent(current: number): number {
 }
 
 // ═══════════════════════════════════════════════════
+// ⚡ ПРОВЕРКА ПУСКОВЫХ ТОКОВ
+// ═══════════════════════════════════════════════════
+
+/**
+ * Для моторных нагрузок рассчитывает пусковой ток (~6-7× номинального)
+ * и проверяет, не вызовет ли он ложное срабатывание автомата.
+ *
+ * Пороги срабатывания по IEC 60898:
+ *   B — 3×Inom (гарантированно не сработает), 5×Inom (гарантированно сработает)
+ *   C — 5×Inom / 10×Inom
+ *   D — 10×Inom / 20×Inom
+ */
+function checkInrushCurrents(
+  lines: CalculatedLine[],
+  warnings: string[]
+): CalculatedLine[] {
+  const MOTOR_TYPES: ConsumerType[] = [
+    "AIR_CONDITIONER",
+    "REFRIGERATOR",
+    "WASHING_MACHINE",
+  ];
+
+  const INTRUSION_MULTIPLIER = 6.5; // средний пусковой ток бытовых моторов
+
+  const thresholds: Record<BreakerCharacteristic, { safe: number; trip: number }> = {
+    B: { safe: 3, trip: 5 },
+    C: { safe: 5, trip: 10 },
+    D: { safe: 10, trip: 20 },
+  };
+
+  return lines.map((line) => {
+    const hasMotor = line.consumers.some((c) => MOTOR_TYPES.includes(c.type));
+    if (!hasMotor) return line;
+
+    const inrush = line.calculatedCurrent * INTRUSION_MULTIPLIER;
+    const threshold = thresholds[line.breaker.characteristic];
+    const safeCurrent = line.breaker.current * threshold.safe;
+    const tripCurrent = line.breaker.current * threshold.trip;
+
+    if (inrush > tripCurrent) {
+      warnings.push(
+        `⚡ ${line.name}: пусковой ток ~${inrush.toFixed(0)} А может вызвать ложное срабатывание автомата ${line.breaker.characteristic}${line.breaker.current}A. Рекомендуется кривая D или автомат большего номинала.`
+      );
+    } else if (inrush > safeCurrent) {
+      warnings.push(
+        `⚡ ${line.name}: пусковой ток ~${inrush.toFixed(0)} А близок к порогу срабатывания автомата ${line.breaker.characteristic}${line.breaker.current}A (зона неопределённости).`
+      );
+    }
+
+    return { ...line, inrushCurrent: Math.round(inrush) };
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// ⚖️ БАЛАНСИРОВКА ФАЗ (для 3-фазной сети)
+// ═══════════════════════════════════════════════════
+
+/**
+ * Распределяет однофазные линии по фазам L1/L2/L3 методом "greedy" —
+ * каждую новую линию вешаем на наименее загруженную фазу.
+ * Трёхфазные линии (380В) не участвуют — они сами по себе сбалансированы.
+ */
+function balancePhases(lines: CalculatedLine[]): {
+  balancedLines: CalculatedLine[];
+  phaseBalance: PhaseBalance;
+} {
+  const phaseLoads = {
+    L1: { power: 0, current: 0, lines: 0 },
+    L2: { power: 0, current: 0, lines: 0 },
+    L3: { power: 0, current: 0, lines: 0 },
+  };
+
+  const balanced = lines.map((line): CalculatedLine => {
+    // Трёхфазные линии — без фазы (null)
+    if (line.voltage === 380) {
+      return { ...line, phase: null };
+    }
+
+    // Находим наименее загруженную фазу по мощности
+    const phases: ("L1" | "L2" | "L3")[] = ["L1", "L2", "L3"];
+    const minPhase = phases.reduce((min, p) =>
+      phaseLoads[p].power < phaseLoads[min].power ? p : min,
+      "L1"
+    );
+
+    phaseLoads[minPhase].power += line.calculatedPower;
+    phaseLoads[minPhase].current += line.calculatedCurrent;
+    phaseLoads[minPhase].lines += 1;
+
+    return { ...line, phase: minPhase };
+  });
+
+  // Расчёт разбаланса (% отклонения от среднего)
+  const avgPower =
+    (phaseLoads.L1.power + phaseLoads.L2.power + phaseLoads.L3.power) / 3;
+
+  const imbalance = avgPower > 0
+    ? Math.max(
+        Math.abs(phaseLoads.L1.power - avgPower),
+        Math.abs(phaseLoads.L2.power - avgPower),
+        Math.abs(phaseLoads.L3.power - avgPower)
+      ) / avgPower * 100
+    : 0;
+
+  return {
+    balancedLines: balanced,
+    phaseBalance: {
+      L1: phaseLoads.L1,
+      L2: phaseLoads.L2,
+      L3: phaseLoads.L3,
+      imbalance: Math.round(imbalance * 10) / 10,
+    },
+  };
+}
+
+// ═══════════════════════════════════════════════════
 // 🧮 ГЛАВНАЯ ФУНКЦИЯ РАСЧЁТА
 // ═══════════════════════════════════════════════════
 
@@ -246,7 +439,7 @@ export function calculatePanel(
   protectionLevel: ProtectionLevel = "BASIC"
 ): CalculationResult {
   const warnings: string[] = [];
-  const lines: CalculatedLine[] = [];
+  let lines: CalculatedLine[] = [];
 
   const dedicated = consumers.filter(
     (c) => c.dedicatedLine || ALWAYS_DEDICATED.includes(c.type)
@@ -281,6 +474,7 @@ export function calculatePanel(
     const breakerCurrent = selectBreakerRating(current * 1.1);
     const cable = selectCableSection(breakerCurrent);
 
+    const char = selectCharacteristic("LIGHTING", roomConsumers);
     const line: CalculatedLine = {
       name: `Свет — ${roomName}`,
       lineType: "LIGHTING",
@@ -289,8 +483,10 @@ export function calculatePanel(
       calculatedPower: totalPower,
       calculatedCurrent: current,
       voltage,
-      breaker: { current: breakerCurrent, characteristic: "B", poles: 1 },
+      breaker: { current: breakerCurrent, characteristic: char.characteristic, poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
+      phase: null,
+      characteristicReason: char.reason,
     };
     line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
@@ -305,6 +501,7 @@ export function calculatePanel(
     const breakerCurrent = selectBreakerRating(current * 1.1);
     const cable = selectCableSection(breakerCurrent);
 
+    const char = selectCharacteristic("SOCKETS", roomConsumers);
     const line: CalculatedLine = {
       name: `Розетки — ${roomName}`,
       lineType: "SOCKETS",
@@ -313,8 +510,10 @@ export function calculatePanel(
       calculatedPower: totalPower,
       calculatedCurrent: current,
       voltage,
-      breaker: { current: breakerCurrent, characteristic: "C", poles: 1 },
+      breaker: { current: breakerCurrent, characteristic: char.characteristic, poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
+      phase: null,
+      characteristicReason: char.reason,
     };
     line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
@@ -329,6 +528,7 @@ export function calculatePanel(
     const breakerCurrent = selectBreakerRating(current * 1.1);
     const cable = selectCableSection(breakerCurrent);
 
+    const char = selectCharacteristic("MIXED", roomConsumers);
     const line: CalculatedLine = {
       name: `Смешанная — ${roomName}`,
       lineType: "MIXED",
@@ -337,8 +537,10 @@ export function calculatePanel(
       calculatedPower: totalPower,
       calculatedCurrent: current,
       voltage,
-      breaker: { current: breakerCurrent, characteristic: "C", poles: 1 },
+      breaker: { current: breakerCurrent, characteristic: char.characteristic, poles: 1 },
       cable: { section: cable.section, cores: 3, maxCurrent: cable.maxCurrent },
+      phase: null,
+      characteristicReason: char.reason,
     };
     line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
@@ -363,10 +565,7 @@ export function calculatePanel(
 
     const cable = selectCableSection(breakerCurrent);
     const is3phase = voltage === 380;
-    const characteristic: "B" | "C" | "D" =
-      c.type === "COOKTOP" || c.type === "OVEN" || c.type === "AIR_CONDITIONER"
-        ? "D"
-        : "C";
+    const char = selectCharacteristic("DEDICATED", [c]);
 
     const line: CalculatedLine = {
       name: c.name,
@@ -378,7 +577,7 @@ export function calculatePanel(
       voltage,
       breaker: {
         current: breakerCurrent,
-        characteristic,
+        characteristic: char.characteristic,
         poles: is3phase ? 3 : 1,
       },
       cable: {
@@ -386,6 +585,8 @@ export function calculatePanel(
         cores: is3phase ? 5 : 3,
         maxCurrent: cable.maxCurrent,
       },
+      phase: null,
+      characteristicReason: char.reason,
     };
     line.rcd = selectRcd(line, protectionLevel);
     lines.push(line);
@@ -407,6 +608,39 @@ export function calculatePanel(
     warnings.push("⚠️ Более 20 линий — рассмотрите разделение на несколько щитов.");
   }
 
+  // ⚡ Проверка пусковых токов
+  lines = checkInrushCurrents(lines, warnings);
+
+  // ⚖️ Балансировка фаз для 3-фазной сети
+  let finalLines = lines;
+  let phaseBalance: PhaseBalance | undefined;
+
+  if (networkType === "THREE_PHASE") {
+    const balance = balancePhases(lines);
+    finalLines = balance.balancedLines;
+    phaseBalance = balance.phaseBalance;
+
+    if (phaseBalance.imbalance > 15) {
+      warnings.push(
+        `⚠️ Разбаланс фаз: ${phaseBalance.imbalance.toFixed(1)}%. Рекомендуется перераспределить мощные линии для равномерной загрузки.`
+      );
+    }
+  }
+
+  // 🆕 Проверка загрузки автоматов
+  for (const line of finalLines) {
+    const loadPercent = (line.calculatedCurrent / line.breaker.current) * 100;
+    if (loadPercent > 100) {
+      warnings.push(
+        `🔴 ${line.name}: ток ${line.calculatedCurrent.toFixed(1)} А превышает номинал автомата ${line.breaker.current} А (${loadPercent.toFixed(0)}%). Увеличьте номинал или разделите линию.`
+      );
+    } else if (loadPercent > 80) {
+      warnings.push(
+        `🟡 ${line.name}: загрузка ${loadPercent.toFixed(0)}% — близко к лимиту автомата ${line.breaker.current} А. Рекомендуется запас 20%.`
+      );
+    }
+  }
+
   return {
     networkType,
     totalPower,
@@ -417,8 +651,9 @@ export function calculatePanel(
       current: inputBreakerCurrent,
       poles: networkType === "THREE_PHASE" ? 3 : 2,
     },
-    lines,
+    lines: finalLines,
     warnings,
+    phaseBalance,
   };
 }
 

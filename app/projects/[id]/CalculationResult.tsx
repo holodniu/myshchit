@@ -9,10 +9,13 @@ import {
   Loader2,
   AlertTriangle,
   CheckCircle2,
+  Activity,
 } from "lucide-react";
 import type { CalculationResult } from "@/lib/calculator/calculator";
 import PanelVisualization from "@/components/panel/PanelVisualization";
 import PanelCost from "@/components/panel/PanelCost";
+import ConnectionTable from "@/components/panel/ConnectionTable";
+
 
 export default function CalculationResultPanel({
   projectId,
@@ -27,6 +30,7 @@ export default function CalculationResultPanel({
 
   // 🎯 Состояние бренда — единое для визуализации и цены
   const [brand, setBrand] = useState<string>("abb");
+
 
   const handleCalculate = () => {
     setError(null);
@@ -132,6 +136,11 @@ export default function CalculationResultPanel({
         </CardContent>
       </Card>
 
+      {/* ⚖️ Баланс фаз — только для 3-фазных проектов */}
+      {result.phaseBalance && (
+        <PhaseBalanceView balance={result.phaseBalance} />
+      )}
+
       {/* Список линий (список) */}
       <div>
         <h3 className="text-2xl font-bold text-[#D1D4DC] mb-4">
@@ -144,8 +153,14 @@ export default function CalculationResultPanel({
         </div>
       </div>
 
-      {/* 🎨 Визуализация щита — с выбранным брендом */}
-      <PanelVisualization result={result} brand={brand} />
+      {/* 🔌 Таблица соединений */}
+      <ConnectionTable result={result} />
+
+      {/* 🎨 Состав щита */}
+      <div>
+        <h3 className="text-2xl font-bold text-[#D1D4DC] mb-4">Состав щита</h3>
+        <PanelVisualization result={result} brand={brand} />
+      </div>
 
       {/* 💰 Стоимость — меняет бренд через onBrandChange */}
       <PanelCost result={result} brand={brand} onBrandChange={setBrand} />
@@ -223,6 +238,27 @@ function LineCard({
                 >
                   {typeLabel[line.lineType]}
                 </span>
+                {line.phase && (
+                  <span
+                    className="px-2 py-0.5 text-xs rounded-full font-bold"
+                    style={{
+                      backgroundColor:
+                        line.phase === "L1"
+                          ? "#FFD54F20"
+                          : line.phase === "L2"
+                          ? "#26A69A20"
+                          : "#EF535020",
+                      color:
+                        line.phase === "L1"
+                          ? "#FFD54F"
+                          : line.phase === "L2"
+                          ? "#26A69A"
+                          : "#EF5350",
+                    }}
+                  >
+                    {line.phase}
+                  </span>
+                )}
               </div>
               <h4 className="text-lg font-bold text-[#D1D4DC] mt-1">
                 {line.name}
@@ -238,12 +274,15 @@ function LineCard({
             </div>
           </div>
 
+          {/* 🆕 Индикатор загрузки автомата */}
+          <LoadIndicator current={line.calculatedCurrent} breakerCurrent={line.breaker.current} />
+
           <div className="grid grid-cols-3 gap-3 pt-3 border-t border-[#363A45]">
             <Equipment
               icon="⚡"
               title="Автомат"
               value={`${line.breaker.characteristic}${line.breaker.current}`}
-              sub={`${line.breaker.poles}P`}
+              sub={`${line.breaker.poles}P${line.characteristicReason ? " · " + line.characteristicReason : ""}`}
               color="#2962FF"
             />
             {line.rcd ? (
@@ -278,6 +317,124 @@ function LineCard({
         </div>
       </div>
     </Card>
+  );
+}
+
+function PhaseBalanceView({
+  balance,
+}: {
+  balance: NonNullable<CalculationResult["phaseBalance"]>;
+}) {
+  const phaseColors: Record<string, { bg: string; text: string; border: string }> = {
+    L1: { bg: "bg-[#FFD54F]/10", text: "text-[#FFD54F]", border: "border-[#FFD54F]/30" },
+    L2: { bg: "bg-[#26A69A]/10", text: "text-[#26A69A]", border: "border-[#26A69A]/30" },
+    L3: { bg: "bg-[#EF5350]/10", text: "text-[#EF5350]", border: "border-[#EF5350]/30" },
+  };
+
+  const avgPower =
+    (balance.L1.power + balance.L2.power + balance.L3.power) / 3;
+
+  const isBalanced = balance.imbalance <= 15;
+
+  return (
+    <Card className={`${isBalanced ? "bg-[#26A69A]/5" : "bg-[#FF9800]/5"} border-[#363A45]`}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Activity className="w-5 h-5 text-[#2962FF]" />
+          Баланс нагрузки по фазам
+          <span
+            className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
+              isBalanced
+                ? "bg-[#26A69A]/20 text-[#26A69A]"
+                : "bg-[#FF9800]/20 text-[#FF9800]"
+            }`}
+          >
+            {isBalanced ? "✓ Сбалансировано" : `⚠ Разбаланс ${balance.imbalance}%`}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          {(["L1", "L2", "L3"] as const).map((phase) => {
+            const data = balance[phase as "L1" | "L2" | "L3"];
+            const pct = avgPower > 0 ? (data.power / avgPower) * 100 : 0;
+            const colors = phaseColors[phase];
+
+            return (
+              <div
+                key={phase}
+                className={`p-3 rounded-lg border ${colors.bg} ${colors.border}`}
+              >
+                <div className={`text-lg font-bold ${colors.text}`}>{phase}</div>
+                <div className="text-sm text-[#D1D4DC] mt-1">
+                  {(data.power / 1000).toFixed(2)} кВт
+                </div>
+                <div className="text-xs text-[#787B86]">
+                  {data.current.toFixed(1)} А · {data.lines} линий
+                </div>
+                <div className="mt-2 h-1.5 bg-[#131722] rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${Math.min(pct, 100)}%`,
+                      backgroundColor:
+                        phase === "L1"
+                          ? "#FFD54F"
+                          : phase === "L2"
+                          ? "#26A69A"
+                          : "#EF5350",
+                    }}
+                  />
+                </div>
+                <div className="text-xs text-[#50535E] mt-1 text-right">
+                  {pct.toFixed(0)}% от среднего
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function LoadIndicator({
+  current,
+  breakerCurrent,
+}: {
+  current: number;
+  breakerCurrent: number;
+}) {
+  const percent = (current / breakerCurrent) * 100;
+  let color = "#26A69A"; // зелёный — норма
+  let label = "Норма";
+
+  if (percent > 100) {
+    color = "#EF5350"; // красный — перегруз
+    label = "⚠️ Перегруз!";
+  } else if (percent > 80) {
+    color = "#FF9800"; // оранжевый — близко к лимиту
+    label = "Высокая загрузка";
+  }
+
+  return (
+    <div className="pt-2">
+      <div className="flex items-center justify-between text-xs mb-1">
+        <span className="text-[#787B86]">Загрузка автомата</span>
+        <span style={{ color }} className="font-semibold">
+          {label} — {percent.toFixed(0)}%
+        </span>
+      </div>
+      <div className="h-1.5 bg-[#131722] rounded-full overflow-hidden">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${Math.min(percent, 100)}%`,
+            backgroundColor: color,
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

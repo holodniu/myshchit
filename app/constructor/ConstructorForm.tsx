@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import {
   createProject,
@@ -39,6 +39,9 @@ const CONSUMER_TYPES = [
   { value: "WARM_FLOOR", label: "🏠 Тёплый пол", defaultPower: 1500, defaultName: "Тёплый пол", dedicated: true },
   { value: "WORKSHOP", label: "🛠️ Мастерская", defaultPower: 5000, defaultName: "Мастерская" },
   { value: "OUTDOOR", label: "🌳 Улица", defaultPower: 1000, defaultName: "Уличная линия" },
+  { value: "SMART_RELAY", label: "🤖 Реле УД", defaultPower: 50, defaultName: "Реле умного дома", dedicated: true },
+  { value: "SMART_DIMMER", label: "🤖 Диммер", defaultPower: 20, defaultName: "Диммер", dedicated: true },
+  { value: "SMART_GATEWAY", label: "🤖 Шлюз УД", defaultPower: 15, defaultName: "Шлюз/контроллер", dedicated: true },
   { value: "OTHER", label: "🔧 Прочее", defaultPower: 500, defaultName: "Прочее" },
 ];
 
@@ -55,6 +58,7 @@ type Room = {
   id: string;
   name: string;
   area: string;
+  floor: string;
   consumers: Consumer[];
 };
 
@@ -68,6 +72,7 @@ export type ConstructorFormProps = {
     rooms: {
       name: string;
       area: number | null;
+      floor?: number;
       consumers: {
         type: string;
         name: string;
@@ -99,6 +104,7 @@ export default function ConstructorForm({
         id: crypto.randomUUID(),
         name: room.name,
         area: room.area?.toString() || "",
+        floor: room.floor?.toString() || "1",
         consumers: room.consumers.map((c) => ({
           id: crypto.randomUUID(),
           type: c.type,
@@ -114,12 +120,50 @@ export default function ConstructorForm({
         id: crypto.randomUUID(),
         name: "Кухня",
         area: "12",
+        floor: "1",
         consumers: [],
       },
     ];
   });
 
   const [isPending, startTransition] = useTransition();
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 🆕 Автосохранение (только в режиме редактирования)
+  useEffect(() => {
+    if (mode !== "edit" || !projectId) return;
+
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+
+    autoSaveTimer.current = setTimeout(() => {
+      const input: CreateProjectInput = {
+        name: projectName.trim(),
+        networkType,
+        rooms: rooms.map((r) => ({
+          name: r.name,
+          area: r.area ? parseFloat(r.area) : undefined,
+          floor: r.floor ? parseInt(r.floor) : undefined,
+          consumers: r.consumers.map((c) => ({
+            type: c.type as CreateProjectInput["rooms"][0]["consumers"][0]["type"],
+            name: c.name,
+            power: c.power,
+            quantity: c.quantity,
+            dedicatedLine: c.dedicatedLine,
+          })),
+        })),
+      };
+
+      setSaveStatus("saving");
+      updateProject(projectId, input)
+        .then(() => setSaveStatus("saved"))
+        .catch(() => setSaveStatus("idle"));
+    }, 3000);
+
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [projectName, networkType, rooms, mode, projectId]);
 
   const addRoom = () => {
     setRooms([
@@ -128,6 +172,7 @@ export default function ConstructorForm({
         id: crypto.randomUUID(),
         name: `Комната ${rooms.length + 1}`,
         area: "",
+        floor: "1",
         consumers: [],
       },
     ]);
@@ -137,7 +182,7 @@ export default function ConstructorForm({
     setRooms(rooms.filter((r) => r.id !== roomId));
   };
 
-  const updateRoom = (roomId: string, field: "name" | "area", value: string) => {
+  const updateRoom = (roomId: string, field: "name" | "area" | "floor", value: string) => {
     setRooms(rooms.map((r) => (r.id === roomId ? { ...r, [field]: value } : r)));
   };
 
@@ -222,6 +267,7 @@ export default function ConstructorForm({
       rooms: rooms.map((r) => ({
         name: r.name,
         area: r.area ? parseFloat(r.area) : undefined,
+        floor: r.floor ? parseInt(r.floor) : undefined,
         consumers: r.consumers.map((c) => ({
           type: c.type as CreateProjectInput["rooms"][0]["consumers"][0]["type"],
           name: c.name,
@@ -261,7 +307,20 @@ export default function ConstructorForm({
     <form onSubmit={handleSubmit} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Общая информация</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Общая информация</CardTitle>
+            {isEditMode && saveStatus !== "idle" && (
+              <span
+                className={`text-xs ${
+                  saveStatus === "saving"
+                    ? "text-[#FF9800]"
+                    : "text-[#26A69A]"
+                }`}
+              >
+                {saveStatus === "saving" ? "💾 Сохранение..." : "✓ Сохранено"}
+              </span>
+            )}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -324,6 +383,19 @@ export default function ConstructorForm({
                       }
                       placeholder="12"
                       className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label>Этаж</Label>
+                    <Input
+                      type="number"
+                      value={room.floor}
+                      onChange={(e) =>
+                        updateRoom(room.id, "floor", e.target.value)
+                      }
+                      placeholder="1"
+                      className="mt-1"
+                      min="1"
                     />
                   </div>
                 </div>
